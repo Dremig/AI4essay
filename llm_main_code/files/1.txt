@@ -1,0 +1,813 @@
+SQLStateGuard: Statement-Level SQL Injection
+Defense Based on Learning-Driven Middleware
+Xin Liu Yuanyuan Huang∗ Song Li†
+SchoolofInformationScience& Tianyi Wang∗ TheStateKeyLaboratoryof
+Engineering,LanzhouUniversity BlockchainandDataSecurity,
+huangyy19@lzu.edu.cn
+Lanzhou,Gansu,China ZhejiangUniversity
+wangty2020@lzu.edu.cn
+bird@lzu.edu.cn Hangzhou,Zhejiang,China
+SchoolofInformationScience&
+songl@zju.edu.cn
+Engineering,LanzhouUniversity
+Lanzhou,Gansu,China
+Weina Niu Jun Shen Qingguo Zhou†
+SchoolofComputerScienceand SchoolofComputingand SchoolofInformationScience&
+Engineering,Universityof InformationTechnology, Engineering,LanzhouUniversity
+ElectronicScienceandTechnology UniversityofWollongong Lanzhou,Gansu,China
+ofChina Wollongong,NewSouthWales zhouqg@lzu.edu.cn
+Chengdu,Sichuan,China Australia
+vinusniu@uestc.edu.cn jshen@uow.edu.au
+Xiaokang Zhou
+FacultyofBusinessDataScience,
+KansaiUniversity
+Suita,Osaka,Japan
+zhou@kansai-u.ac.jp
+ABSTRACT database-orienteddetectionnetworkbasedongatedlinear
+SQLinjectionisasignificantandpersistentthreattoweb units.IfSQLSG-NetdetectsmaliciousSQLstatements,the
+services.MostexistingprotectionsagainstSQLinjections SQLmiddlewarewillblockthem.Experimentsshowthatthe
+relyontraffic-levelanomalydetection,whichoftenresults detectionaccuracyofSQLStateGuardexceeds99%,outper-
+inhighfalse-positiveratesandcanbeeasilybypassedby formingexistingapproaches,anditcanidentifythetypeof
+attackers.ThispaperintroducesSQLStateGuard,theworld’s aspecificSQLinjection.Additionally,SQLStateGuardhasno
+first middleware-driven statement-level SQL injection de- fingerprintanddoesnotrespondtoSQLsyntaxerrors,mak-
+fenseapproach,toaddresstheseissues.TheSQLStateGuard ingitmorechallengingforattackerstogatherinformation.
+uses a custom SQL middleware based on the idea of Run- Thispaperalsopresentsanoveldatasetgenerationprocess
+timeApplicationSelf-ProtectiontocapturerawSQLstate- forSQLStateGuardandsharestwostatement-levelSQLin-
+ments.ThesestatementsarethenanalyzedbySQLSG-Net,a jectiondatasetswiththeresearchcommunity,includingover
+145,000maliciousSQLstatementscategorizedbythetypeof
+∗Bothauthorscontributedequallytothisresearch. SQLinjection.
+†Correspondingauthors.
+Permissiontomakedigitalorhardcopiesofpartorallofthisworkfor CCSCONCEPTS
+personalorclassroomuseisgrantedwithoutfeeprovidedthatcopiesare
+• Security and privacy → Firewalls; Database activity
+notmadeordistributedforprofitorcommercialadvantageandthatcopies
+bearthisnoticeandthefullcitationonthefirstpage.Copyrightsforthird- monitoring.
+partycomponentsofthisworkmustbehonored.Forallotheruses,contact
+theowner/author(s).
+SoCC’24,November20–22,2024,Redmond,WA,USA KEYWORDS
+©2024Copyrightheldbytheowner/author(s).
+SQLInjection,AttackDetection,DeepLearning,WebSecu-
+ACMISBN979-8-4007-1286-9/24/11.
+https://doi.org/10.1145/3698038.3698569 rity,DataSecurity
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+ACMReferenceFormat: • ThispaperintroducestheideaofRASPintothemid-
+XinLiu,YuanyuanHuang,TianyiWang,SongLi,WeinaNiu,Jun dleware,therebyenablingsecurityanalysisandblock-
+Shen,QingguoZhou,andXiaokangZhou.2024.SQLStateGuard: ing SQL injection at the statement level. Compared
+Statement-LevelSQLInjectionDefenseBasedonLearning-Driven toexistingapproaches,SQLStateGuardcapturesthe
+Middleware.InACMSymposiumonCloudComputing(SoCC’24),
+statementsabouttobeexecuted,removingmostofthe
+November20–22,2024,Redmond,WA,USA.ACM,NewYork,NY,
+unnecessaryinformation,resultinginnon-intrusive
+USA,14pages.https://doi.org/10.1145/3698038.3698569
+andaccurateblockingofpotentiallyharmfulSQLin-
+jections.
+• A new SQL statement-level injection detection net-
+work, SQLSG-Net, is proposed to incorporate NLP
+1 INTRODUCTION
+techniques.SQLSG-NetconductsSQLsemanticpars-
+SQL injection is a technique attackers use to inject mali- ingandthenutilizesdatabase-orientedmodelsbased
+ciouspayloadsintoSQLstatementsexecutedbyadatabase on gated linear units mechanism to perform high-
+server.Attackerscanuseittostealconfidentialinformation precisionstatement-leveldifferenceminingbetween
+orcompromisetheintegrityofthedatabase[45].According SQL statements. This results in more accurate and
+toarecentresearch[4],despitebeingwell-knownforover faster detection, effectively reducing the number of
+twodecades,SQLinjectionremainsamongthetopattack falsepositivereportsgeneratedbymeaninglessSQL
+techniquesduetotheirlowcost,highimpact,andflexibility. injectionvectors.
+TraditionalSQLinjectiondetectionapproaches[6,7,29, • AprototypeofSQLStateGuardhasbeenimplemented
+40]generallydetectandfilterSQLinjectionsthroughrule andexperimentallyvalidatedusingdatasetsgenerated
+matching.Theeffectivenessoftheseapproacheshighlyde- throughanoveldatasetgenerationprocess.Theresults
+pendsonthedesignofpredefinedrules.Ifauser’srequest demonstratethatSQLStateGuardofferssignificantad-
+matchesarule,itwillbereportedasmalicious.Therefore, vantagesoverexistingapproaches.Withabinaryclas-
+theserulesareveryfragileinthefaceofnewthreats.Besides, sificationaccuracyofover99.9%,SQLStateGuardef-
+theyalsosufferfromsensitivitychallenges-laxmatching fectivelydetectsSQLinjectionswithameagerfalse
+rulescansignificantlyincreasefalsepositives.Incontrast, positiverateandcanaccuratelyidentifythedifferent
+stringentmatchingrulescansubstantiallyleadtolowerde- typesofSQLinjections.
+tectionrates. • Thispapersharestwostatement-levelSQLinjection
+Withadvancementsinmachinelearning,researchers[18, datasets 1 with the research community, including
+24,39]startedtouselearning-basedapproachestodetect morethan145,000maliciousSQLstatementscatego-
+SQLinjections.Mostofthemhavefocusedondetectionat rizedbythetypeofSQLinjection.
+thetrafficlevel.However,thecomplexityanddiversityof
+Therestofthispaperisorganizedasfollows:Section2
+trafficcanposechallengesformachinelearningmodelsto
+presentstheexistingapproachesofSQLinjectionprotection.
+detectSQLinjectionsaccurately.[12]Thedifferencebetween
+Section3presentsthedesignofSQLStateGuard.Section4
+normaltrafficandmalicioustrafficcanbeveryslight.On
+usesmultipledatasetstoevaluateSQLStateGuard.Section5
+theotherhand,mostfuzzingpayloadsdonotcauseareal
+discussestheweaknessesandfutureimprovementsofSQL-
+hazard,whiletraffic-leveldetectionwillgeneratenumerous
+StateGuard.Section6concludesthispaper.
+meaninglessalertsbecauseofthem,severelyincreasingthe
+burdenonsecurityengineers. 2 RELATEDWORK
+Inthispaper,wepresentSQLStateGuard,adeeplearning-
+ExistingSQLinjectionprotectionapproachesmainlyrely
+basedsolutiontodefendagainstSQLinjections.SQLState-
+onrules.[3]Dependingontheobjectofanalysis,existing
+Guard is based on middleware and operates at the state-
+approachescanbeclassifiedintocode-levelprotectionand
+mentlevel,enhancingdetectionaccuracyandreducingfalse
+traffic-levelprotection.
+alarms. It consists of two core components: the SQL mid-
+dlewareandSQLSG-Net.TheSQLmiddleware,builtonthe
+2.1 TraditionalSQLInjectionProtection
+RuntimeApplicationSelf-Protection(RASP)[2]idea,isre-
+sponsibleforextractingSQLstatementsanddetectingand Intermsofcode-levelprotection,existingresearchisusu-
+blockingSQLinjections.SQLSG-Net,ontheotherhand,is ally based on static approaches such as taint propagation
+a statement-level SQL injection detection network based analysis[36]tofindSQLinjectionvulnerabilitiesatthecode
+on Natural Language Processing (NLP). It uses database- level,addressingtherootcauseofSQLinjectionproblems.
+orientedmodelstodetectSQLinjectionsandidentifytheir
+typesaccurately.Wesummarizeourcontributionsasfollows. 1https://github.com/dstsmallbird/SQLStateGuard_Dataset
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+HTTP/HTTPS SQL SQL
+Filter
+Requests Statement Statement
+User WAF Server-end SQLStateGuard Database
+Service Service
+SQL SQL
+Statement Statement
+Service Client
+Interface Interface
+Results Results
+Processing Module
+Middleware
+Server-end Database
+Service SQL Statement Detection Result Service
+Albert
+Structural Feature Semantic Feature SQL Injection
+Extraction Layer Extraction Layer Detection Layer
+SQLSG-Net
+Figure1:WorkflowandArchitectureofSQLStateGuard
+RIPS[11],astaticcodeanalysistooldevelopedforPHPappli- SQLinjectionattacksbyexploitingtheinformationgapbe-
+cations,isoneofthemostrepresentativeapproachesofthis tweenattackanddefense,e.g.,SQLrand[7]usesinserting
+kind.Similarly,Meietal.[19]proposedagrey-boxapproach random numbers into SQL keywords and modifying SQL
+todetectSQLinjectionsinJavaruntime.Zhangetal.[46] interpreterstocounterinjections.
+tried to use Moving Target Defense (MTD) to reduce the
+attacksurfaceofSQLinjections. 2.2 Learning-basedSQLProtection
+Mosttraffic-levelprotectionisbasedonsyntaxanalysis Detection
+ofuserrequests[30],anditisveryraretoconductdetection
+Incode-levelprotection,researchershavetriedtoletAIun-
+basedentirelyonstatisticalcharacteristicsofnetworktraf-
+derstandthecodeandfindpotentialsecurityrisks,e.g.,Vul-
+fic,suchasrequestfrequency,requestpacketsize,andthe
+Hunter[14]basedondeeplearningandbytecodetodetect
+numberofconnections.Theonlyexistingworkistheap-
+SQL injection vulnerabilities in PHP applications. Traffic-
+proachproposedbyYufeietal.[47]fordetectingautomated
+levelprotectioniscurrentlythemostpopularresearchtopic
+SQLinjectiontests.Mostoftheapproachesbasedonsyntac-
+inlearning-basedSQLinjectionprotection.Similartotradi-
+ticanalysisofuserrequestsareIntrusionDetectionSystem
+tionalapproaches,althoughthereareapproaches[44]based
+(IDS)-relatedstudies,whichdirectlydetectthecontentof
+entirelyonstatisticalfeaturesoftraffic,userrequestsanaly-
+userrequests(e.g.,HTTPmessages)basedonthecompleted
+sisbasedonpacketinspectionandprotocolanalysisusing
+protocol parsing, and WAF is the representative. [8] Tra-
+deeplearningtechniquesisstillpredominant.Liuetal.[25]
+ditionalIDScanalsodetectSQLinjectionattacks,suchas
+proposedOwlEye,ahybridattackdetectionsensorbasedon
+Zolotukhinetal.[48],whomodelnormaluserbehaviorus-
+HiddenMarkovModel(HMM)designedtodefendagainst
+inganomalydetectionalgorithmsandclusteringalgorithms
+web-layercodeinjectionattacks,achievingahighdetection
+andthenidentifymaliciousrequestsbythedeviationvalues
+ratewithanacceptablefalsepositiveratethroughitsbidi-
+ofuserbehavior.Therearealsosomeideastoprotectagainst
+rectional scoring architecture that leverages both benign
+andmalicioustrafficinmodeltraining.Pengetal.[35]use
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+MultilayerPerceptron(MLP)andLongShort-TermMemory programandthedatabaseservice,andallSQLstatements
+(LSTM)todetectSQLinjectionsbasedonpacketinspection. are passed throughit forsecuritychecks. SQLStateGuard
+Liuetal.[41]proposedtheMulti-classS-TCNmodel,which hastwoworkingmodes:BlockingModeandBypassMode.
+enhancesthedetectionspeedandaccuracyofSQLinjection InBlockingMode,SQLStateGuardwillcheckthesecurityof
+attacksbyleveragingtimeconvolutionalnetworks,signifi- SQLstatementsbeforedecidingwhethertoforwardthem
+cantlyimprovingreal-timetrafficanalysisinIoTscenarios. todatabaseservices,whichmeansthismodecanblockSQL
+Crespo-Martínezetal.[10]useaLogisticRegression-based injectionsinreal-time.BypassModeissuitableforservices
+modeltodetectSQLinjections.Abaimmovetal.[1]proposed with high-frequency requests but low data sensitivity. In
+CODDLEsystem,whichusesConvolutionalNeuralNetwork BypassMode,SQLStateGuardwillforwardSQLstatements
+(CNN)todetectinjections.Luetal.[27]constructamodel tothedatabaseserviceandmakesecuritycheckssimultane-
+namedsynBERTtodectectSQLinjections.Inrecentyears, ously,andthetwoprocessesareindependentofeachother.
+therehavebeensomeresearchersinstatementleveldetec- SQLStateGuardinBypassModewillalertsecurityoperators
+tion,butmostoftheirdetectionrulesarerelativelysimple. whenitfindsamaliciousSQLstatementratherthanblocking
+William G. J. et al. [15] combined static analysis with dy- SQLinjectionsinreal-time.
+namicmonitoringtodevelopatoolnamedAMNESIA.This Thearchitectureofthedetectionsystemisshownbelow
+tool constructsSQL query models throughstatic analysis thedottedlineinFigure1,andconsistsoftwosignificant
+andsubsequentlymonitorsqueriesatruntimetodetectpo- components:SQLMiddlewareandSQLSG-Net.SQLmiddle-
+tentialSQLinjectionattacks.Konstantinosetal.[20]detect wareismainlyusedtointercepttheSQLstatementsbetween
+SQLinjectionattacksbyinterceptingSQLstatementsand theback-endapplicationandthedatabaseandblockthema-
+determiningwhetherthestatementsconformtopredefined liciousones,anditsmodeofoperationissimilartothatofa
+specifications. proxyserver.SQLSG-Netisastatement-levelSQLinjection
+OneofthemostimportantfeaturesofSQLinjectionsis detectionnetworkbasedongatedlinearunits[17],andits
+theuseofspecialsymbolstobreakthroughtheoriginalstate- maintaskistoperformsecurityanalysisofSQLstatements.
+mentstructure,whichhasbeendiscussedindepthbyexist-
+ingapproaches[26,42,43].However,sinceuser-generated
+3.2 SQLMiddleware
+contentishighlyvariable,itisdifficultfordatasetstocover
+allnormaluserinput,makingnormaluserrequests(espe- SQLMiddlewareisthekeycomponentusedtoextractSQL
+ciallythoseincludingspecialsymbolssuchassinglequotes) statementsandcompleteSQLinjectiondetectionandblock-
+easilymistakenformaliciousrequests.Sincethelearning- ing,andithasthreemodules:serviceinterface,clientinter-
+based approaches rely on generalization, it is difficult to face,andprocessingmodule.Theserviceinterfaceisused
+adjusttherulesastraditionalapproachesdowhensuchprob- toestablishconnectionswiththeback-endprogram.Forthe
+lemsarise,whichreducesthefeasibilityofthelearning-based back-endprogram,theserviceinterfacebehavesastheinter-
+approachintherealworld. faceofthedatabase;theclientinterfaceisusedtoestablish
+connectionswiththedatabase.Forthedatabase,theclient
+3 DESIGNOFSQLSTATEGUARD interfacebehavesastheinterfaceoftheback-endprogram.
+The processing module is used to complete the logic and
+3.1 Overview
+dataforwardingoftheSQLmiddleware.
+SQLinjectiondetectionisastrong-demandoldtopicwithout WhenSQLStateGuardinBypassModereceivestheSQL
+SilverBullets.SuccessfulSQLinjectionsarenotspecificatthe statementrequestfromtheback-endprogram,theprocess-
+statementlevel,soevenexperiencedsecurityexpertscannot ingmodulewillprovidetheSQLstatementfromtheservice
+tellifastatementisanSQLinjectionwithoutunderstanding interfacetothedetectionnetworkSQLSG-Netforsecurity
+thecodeimplementation,whichisthebiggestchallengein analysiswhileusingtheclientinterfacetoforwardtheSQL
+statement-level defense. We choose to sacrifice flexibility statementtothedatabaseandsendthereturnofthedatabase
+foraccuracy.SQLStateGuardsupportseverySQLvariantor backtotheback-endprogramthroughtheserviceinterface.
+dialect,buteachdatabaseinthedatabaseserverthatneeds Then,accordingtotheresultsoftheanalysisofSQLSG-Net,
+tobeprotectedneedsitsowndatasetandacorresponding itwilldecidewhethertosendalarmmessagestosecurity
+detectionmodeltrainedforit. personnel.WhenSQLStateGuardinBlockingModereceives
+ThepartabovethedottedlineinFigure1showsanap- anSQLstatementfromtheback-endprogram,theprocess-
+plicationscenariowheretheusersendsarequesttotheap- ingmodulewillprovidetheSQLstatementfromtheservice
+plicationinterface,andthentheback-endprogramdoesthe interfacetoSQLSG-Netforsecurityanalysis.IfSQLSG-Net
+actualprocessingandinteractswiththedatabase.Asseen labels the SQL statement as normal, the processing mod-
+fromthefigure,SQLStateGuardworksbetweentheback-end ule forwards this statement to the database and provides
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+theresultreturnedbythedatabaseservicetotheback-end toit.BytraversingtheAST,thislayerextractstheSQLstate-
+program. mentcomponents,suchastablenamesandcolumnnames,
+Intherealworld,attackersusuallyperformfuzzytests thatareirrelevanttoSQLinjectionsandgeneralizesthem
+againstWAFsandotherprotectionsystemstodiscoverflaws tofixedvalues.Specifically,thegeneralizationtargetsand
+intheirrulesbeforeperforminganeffectiveSQLinjection, resultsareshowninTable1.Thislayerdoesnotgeneralize
+mainlybyinsertingspecialcharacters.SQLMiddlewareonly SQLkeywordssuchasSELECT,INSERT,BEGIN,SUM,and
+blocksSQLstatementsthatarelabeledmaliciousbySQLSG- SQLbuilt-infunctions.Unlikeotherstrings,thesekeywords
+Net.Iftheattacker’stestvectorsdonotconstituteSQLin- areessentialcomponentsofstatementstructureanddirectly
+jections,SQLMiddlewarewillnotblockthem,allowingthe reflectthefunctionofthestatement.Throughthislayer,the
+attackertoobtainnormalreturns.Itmakesitmuchmore changescausedbyuser-sideinputintheSQLstatementare
+difficultfortheattackertofindthevulnerabilityintheinter- eliminatedconsiderably,whilethestructuralfeaturesofthe
+ceptionrulesthroughfuzzytestsasinthecaseoftraditional SQLstatementarepreserved.
+WAFs,thusincreasingtheattacker’sattackcost. Asmentionedearlier,anattackerusuallyperformsaseries
+offuzztestsbeforeperforminganeffectiveSQLinjection.
+3.3 SQLSG-Net Inadditiontodetectingflawsintheprotectionsystem,the
+ThestructureofSQLSG-NetisshowninFigure2.SQLSG- attackermayusethesefuzzteststocausesyntacticerrors
+Netextractsboththesyntacticstructureinformationfrom intheSQLstatementssplicedbytheback-endprogramto
+SQLkeywordsandthesemanticinformationfromthewhole determinethespecificinjectiontechniques.Sincethislayer
+statementtodistinguishmaliciousSQLstatementsfromnor- parses the syntax of SQL statements, SQLStateGuard can
+malSQLstatements.TheSQLSG-Netconsistsofthreelayers: capturethe appearance ofSQLsyntaxerrorsand helpse-
+Structural Feature Extraction Layer, Semantic Feature Ex- curitypersonnelfindtheattackerandlocatetheinjection
+tractionLayer,andSQLInjectionDetectionLayer. pointbeforeaneffectiveattackoccurs,thusalleviatingthe
+offensiveanddefensiveasymmetryofSQLinjectionattacks
+3.3.1 StructuralFeatureExtractionLayer. ForSQLinjection, andestablishingtheinformationadvantagefortheblueside.
+thecoretechniqueistobreakthestructureoftheSQLstate- SincenormalSQLstatementsdonothavesyntaxerrorsin
+mentoriginallydesignedandexpectedbythedevelopers, thislayer,anabnormalstatementwillbedeterminedifan
+andthedifferenceinstructureisoneofthemaindifferences SQLstatementhasasyntaxerror.
+betweennormalSQLstatementsandmaliciousSQLstate-
+ments. 3.3.2 SemanticFeatureExtractionLayer. Theinputofthis
+layeristext,andtheoutputisasentencevector.TheSQL
+Table1:GeneralizationRules
+statementsaretreatedasanaturallanguagetoextracttheir
+contextualrelationshipsandsemanticfeaturesinthislayer.
+Target GeneralizationResults Then,thegeneralizedSQLstatementsoutputfromtheStruc-
+tural Feature Extraction Layer are vectorized to generate
+ColumnName TK_IDTF
+numericalsentencevectorrepresentationsforsubsequent
+TableName TK_IDTF
+SQLinjectiondetection.AfterobtainingthegeneralizedSQL
+NumericalValue 0
+statementsfromtheStructuralFeatureExtractionLayer,the
+String TK_STR
+semantic feature extraction layer performs segmentation
+Function TK_F
+andencodingtogetthesubscriptsequenceoftheSQLstate-
+System/UserVariable TK_VAR
+ments, which is illustrated in Figure 4. The "subscript se-
+Alias TK_IDTF
+quence"referstothesequencenumberofaparticularword
+Comment TK_C
+inapre-setvocabulary.Inthispaper,weuseAlbertTokenizer
+providedbyTransformer[37]open-sourceprojecttodothis
+Theinputofthislayerisoriginaltext,andtheoutputispro- part,whichisbasedonSentencePiece[22].
+cessedtext.ThislayergeneralizesthecomponentsoftheSQL Afterobtainingthesubscriptsequence,thislayerusesthe
+statement,eliminatesredundantinformation,andpreserves Albert[23]modeltogenerateasentencevector.Bert[21]
+the structural features of the SQL statement, thus laying isawidelyusedpre-trainingmodelinNLP,whichisbased
+thefoundationforthesubsequentsemanticanalysis.This onTransformerandperformswellonarangeofsemantic
+layerstartswiththeconstructionofanAbstractSyntaxTree understandingtasks.AlbertisavariantoftheBert,which
+(AST)fortheSQLstatement,whichisimplementedusingthe reducesthenumberofparametersbyweightsharingandma-
+Go-basedSQLsyntaxparserprovidedbyPingCAP[31],and trixdecompositiontoreduceparameterdata,thusdecreasing
+Figure3showsanSQLstatementandtheASTcorresponding spatialcomplexity.Thislayertakestheencodedsubscript
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+krowteN
+noitceteD
+noitcejnI
+LQS
+leveL-tnemetatS
+erutaeF
+lartcurtS
+erutaeF
+citnameS
+noitcejnI
+LQS
+tupnI
+reyaL
+noitcartxE
+reyaL
+noitcartxE
+reyaL
+noitceteD
+SQL Statement
+Generalization
+Abstract Column Name,
+Generalized Text
+Syntax Tree Table Name
+Albert
+Sentence Subscripts
+Vector Sequence Segmentation
+Normal
+Malicious
+Detection Network
+Figure2:SQLSG-NetStructure
+Figure4:SegmentationandEncodingExample
+Figure3:ASTConstruction
+3.3.3 SQLInjectionDetectionLayer. Thislayerisbasedon
+GatedLinearUnit(GLU).Itsinputisthesentencevectorfrom
+theSemanticFeatureExtractionLayer,anditsoutputisthe
+sequenceastheinputoftheAlbertmodelandobtainsits multi-classifiedSQLinjectiondetectionresult.Itsstructure
+sentencevectoroutput.Albertprovidesfourdifferentsizes isshowninFigure5.IntroducingGLUforthislayerhelps
+ofpre-trainedmodels,andthislayerusesthemostminia- thenetworkfocusonkeyinformationandstructuresand
+ture scale model, Albert-Base, which has only 12 million thusachievefine-grainedSQLinjectiondetection.Please
+parametersand768hiddenunits. notethatthemodelsinthislayeraredatabase-oriented,
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+In Eq. 7, 𝐼𝑛𝑝𝑢𝑡 is the input vector of Dense,𝑊𝑒𝑖𝑔ℎ𝑡 is
+Input
+theweightmatrix,𝐵𝑖𝑎𝑠 isthebiasmatrix,and𝐴𝑐𝑡𝑖𝑣𝑎𝑡𝑖𝑜𝑛is
+Sentence theactivationfunction.ThemainworkofDenseistomap
+Vector
+the GLU Layer output feature vector to the output space
+byanonlineartransformationbasedonthefullyconnected
+Normalized
+Vector structure:
+Dense
+Layer 𝑍 =𝑊 𝑚×𝑛 ·𝑋 𝑛×𝑑 +𝐵 𝑚×𝑑 (8)
+InEq.8,𝑚 isthenumberofneuronsofDense,𝑑 isthe
+Repeat
+dimensionalityoftheinputvector,and𝑛isthenumberof
+GLU 2 times samples.The𝑊 𝑚∗𝑛 istheweightmatrix,𝑋 𝑛∗𝑑 isthematrix
+Layer composedofsamples,and𝐵 𝑚∗𝑑 isthebiasmatrix.Finally,
+SoftmaxmapstheoutputofDensetoaprobabilitydistribu-
+tion:
+Dense 𝑒𝑧𝑖
+Layer 𝑆𝑜𝑓𝑡𝑚𝑎𝑥(𝑧 𝑖) =
+(cid:205)𝑚
+𝑖=1
+𝑒𝑧𝑖
+(9)
+S L of a t y m e a r x Where 𝑧 𝑖 is the i-th input value, the probability of the
+samplebelongingtoeachcategoryisobtainedbySoftmax,
+Output andthecategorywiththehighestprobabilityisusedasthe
+resultofSQLinjectiondetection.
+Figure5:SQLInjectionDetectionNetworkBasedon
+GLU 3.4 DatasetGenerationProcessfor
+SQLStateGuard
+meaningmultipledetectionmodelsaretrainedfordif- Evenexperiencedsecurityexpertscannottellifastatement
+ferentdatabases.Next,weintroducethecomputationpro- isanSQLinjectionwithoutunderstandingthecodeimple-
+cessofGLUusedinthislayer.Wedenotethesentencevector mentation.Itdirectlyleadstothelackofstatement-levelSQL
+inputtothislayeras𝑋: injectiondatasets,makingstatement-levelSQLinjectionde-
+tectionchallengingtoimplement.Thispartshowshowto
+𝑋 = {𝑋
+1
+,𝑋
+2
+,...,𝑋 𝑛} (1) generatestatement-leveldatasetsforthedatabasesthatneed
+tobeprotectedbySQLStateGuard.
+Then,normalizetheinputsentencevector:
+SQLStateGuardrequiresbothnormalandmalicioussam-
+𝑥 −𝐸(𝑥) plesfortraining.Togeneratethesesamples,thedatasetgen-
+𝑁 = ∗𝛾 +𝛽, 𝑓𝑜𝑟 𝑥𝑖𝑛𝑋 (2)
+√︁ Var[𝑥]+𝜖 erationprocessproposedinthispapercanbebrieflydivided
+intothreesteps:injectionpayloadcollection,templatestate-
+Next,usetheDenselayertoprocessthenormalizeddata.
+mentcollection,andstatementsplicing.
+𝐷 =𝑊 𝑁 +𝑏 (3)
+0
+Then,usetheGLUlayertoprocesstheoutputoftheDense
+layer.
+𝐴=𝐸×𝑊 +𝑏 (4)
+𝐵 =𝐸×𝑉 +𝑐 (5)
+𝐻 =𝐴⊗𝜎(𝐵) (6)
+0
+Inthislayer,thesentencevectoroftheinputSQLstate- Figure6:TemplateStatementCollection
+mentisprocessedbytheGLU-basednetwork,andDenseand
+Softmaxobtainthefinalclassificationprobabilityoutput:
+We first need to complete the injection payload collec-
+tion.Sincetherearemanypayload-levelSQLinjectionde-
+𝑂𝑢𝑡𝑝𝑢𝑡 =𝐴𝑐𝑡𝑖𝑣𝑎𝑡𝑖𝑜𝑛((𝐼𝑛𝑝𝑢𝑡 ·𝑊𝑒𝑖𝑔ℎ𝑡)+𝐵𝑖𝑎𝑠) (7) tectionstudiesandtherelateddatasetsarerich,thispaper
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+collectspayloadsfromexistingpublicdatasetssuchasData- Table 2: Details of Statement-Level SQL Injection
+Hacking[34]andLibInjection[13].Inaddition,wealsocol- Datasets
+lectthepayloadsusedbyautomatedtestingtoolssuchas
+SqlMap[5].Then,weconducttemplatestatementcollection, Dataset DatasetID Type Count
+astepthatisalsodonebasedonmiddleware.Asshownin Malicious 74,555
+Self-Built I
+Figure6,wecollecttheSQLstatementsgeneratedbyper- Normal 75,000
+formingfunctionaltestsaftersettingupmiddlewarebetween Malicious 71,757
+WordPress II
+theapplicationandthedatabase.Thesestatementsareboth Normal 79,316
+normalsamplesinthedatasetandtemplatestatementsused
+toconstructmalicioussamples. Table3:DetailsofMaliciousStatement-LevelSQLIn-
+jectionDatasets
+DetailType DatasetI DatasetII
+Time-based 1,588 1,392
+Boolean-based 2,196 2,012
+Error-based 3,491 3,206
+Tautology-based 9,135 8,359
+Union-based 58,145 56,788
+Thedetailsofthestatement-levelSQLinjectiondatasets
+Figure7:Payload-to-TemplateSplicing usedinthispaperareshowninTable2andTable3,which
+come from a self-built Web application (Dataset I) and a
+WordPress[38]instance(DatasetII),respectively.Theself-
+Finally, we splice the payloads into the template state-
+builtWebapplicationisanApplicationProgrammingInter-
+mentsandlabeltheoutputstatementsasmalicioussamples.
+face(API)gatewaybasedonSanicFramework[33].Word-
+Figure 7 is an example of this process. In principle, SQL-
+Pressisthemostwidelyusedopen-sourcecontentmanage-
+StateGuardaccomplishesinjectiondetectionbydetermining
+mentsystemintheworld.ThetotalcountofSQLstatements
+whether the statement to be tested is "abnormal" or not.
+inthetwodatasetsexceeds300,000.
+Therefore, this dataset generation process is the basis of
+SQLStateGuard.
+Table4:DetailsofHTTPRequestDataset
+4 EXPERIMENTS
+Dataset DatasetID MainLabel Count
+Thispaperusesdifferentdatasetsandthefollowingquestions
+toevaluateSQLStateGuard: Malicious 22,334
+Self-Built III
+Normal 22,534
+• RQ1:CanSQLStateGuardeffectivelydetectSQLinjec-
+tionsagainstdatabaseservices? Malicious 13,421
+WordPress IV
+• RQ2:IsSQLSG-NetbasedonGLUnetworkbetterthan Normal 13,335
+otherimplementations?
+• RQ3:IsthedetectioncostofSQLStateGuardaccept- TheHTTPrequestdatasetsbasedonthestatement-level
+ableinreal-worldenvironments? SQLinjectiondatasetsaresimilarlydividedintoDatasetIII
+• RQ4:IsSQLStateGuardbetterthanexistingSQLin- (self-builtWebapplication)andDatasetIV(WordPress).The
+jectiondetectionapproaches? detailsofthesetwodatasetsareshowninTable4.Sincethe
+application processingof anHTTP requestmay generate
+4.1 Datasets
+multipleSQLstatements,thenumberofsamplesintheHTTP
+Thispaperusestwostatement-levelSQLinjectiondatasets requestdatasetandthestatement-levelSQLinjectiondataset
+generatedbytheprocessinSection3.4andtwoHTTP isdifferent.
+requestdatasetsconstructedbasedonthem.Thestatement- Pleasenotethatsincesomeabnormalsamplesareinjected
+levelSQLdatasetisusedtotrainandevaluatetheSQLSG-Net basedonsyntaxerrors,theyareblockedatthestructural
+inSQLStateGuard,whiletheHTTPrequestdatasetisusedto featureextractionlayer.So,forRQ1,2,and3,thedataset
+compareSQLStateGuardandothertraffic-basedapproaches isallSQLstatementsthatpassthroughthestructuralfea-
+inaside-by-sidemanner. tureextractionlayer.Therelationshipbetweentheoriginal
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+datasetandthedatasetthatpassesthroughthestructural Thebinaryclassificationevaluationonlydistinguishesbe-
+featureextractionlayerisshowninTable5. tweennormalandmalicious,whichmainlyshowstheper-
+formanceofSQLSG-NettodetectSQLinjections.Themulti-
+4.2 Implementation,Setup,andMetrics classificationevaluationismorefine-grainedandevaluates
+SQLStateGuard’sabilitytodistinguishdifferentSQLinjec-
+Intermsofthehardwareenvironment,weuseaGPUserver
+tiontypes,andbetterdifferentiationmeansthatSQLState-
+(NVIDIARTXA6000)tocompletethetrainingandevaluation
+Guardcanprovidemoreinformationtosecurityoperators
+ofSQLStateGuard.Intermsofsoftwareimplementation,this
+andhelpthemlocateandanalyzesecuritythreats.
+paper implements a prototype system of SQLStateGuard
+Then,weuseDatasetIItoperformtrainingevaluationon
+basedonPython[32]3.8.5,andotherapproachesinvolved
+SQLSG-Net.ComparedwithDatasetI,thecontent-driven
+intheexperimentscomefromtheirofficialimplementations
+DatasetIIismorecomplexandhasagreatervarietyofSQL
+ortheimplementationsprovidedbytheauthors.
+statementstructures.Herearetwoinjectedstatementsof
+WeuseAccuracy,Recall,Precision,F1-Score,andFalsePos-
+itiveRate(𝐹𝑃𝑅 = 𝐹𝑃 )toevaluateSQLStateGuard.Con- the same type, and we can see that the structures of the
+𝑇𝑁+𝐹𝑃
+statements in Dataset II are more complex than those in
+sidering the unbalanced datasets used in evaluating SQL-
+DatasetI:
+StateGuard,wewilluseweightedmetricstocompletethe
+multi-classificationevaluationofSQLStateGuard.Inthispa-
+Listing1:ExamplesofMaliciousStatementsinDataset
+per,theweightofeachclassificationisdefinedasthepro-
+IandDatasetII
+portion of samples in the total sample and is denoted as
+𝑊 𝑖 = (cid:205) (cid:205) 𝑖 (cid:205) 𝑖 𝐶 𝑗 𝑖 𝐶 ,𝑗 𝑖,𝑗 . Then, we calculate the metrics in a multi- A se T le i c m t e- u b s a e s r e _ d id In , je p c a t s io sw n o in rd D f a ro ta m se i t n I fo.users where
+classificationscenariobyweightingtheaverageforamore
+username='admin'; select sleep(5);−− '
+fine-grainedevaluationofSQLStateGuard.Wehave:
+∑︁
+𝐴𝑐𝑐𝑢𝑟𝑎𝑐𝑦 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝐴𝑐𝑐𝑢𝑟𝑎𝑐𝑦 𝑖 (10) ATime-basedInjectioninDatasetII
+𝑖 SELECTSQL_CALC_FOUND_ROWSwp_posts.IDFROM
+wp_postsWHERE1=1ANDwp_posts.post_type='
+∑︁
+𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 𝑖 (11) wp_block'AND((wp_posts.post_status='publish'));
+𝑖 SELECTSLEEP(5)−−'))ORDERBYwp_posts.
+𝑅𝑒𝑐𝑎𝑙𝑙 𝑎𝑣𝑔 = ∑︁ 𝑊 𝑖 ∗𝑅𝑒𝑐𝑎𝑙𝑙 𝑖 (12) post_dateDESCLIMIT0,100
+𝑖
+AfterthetrainingbasedonDatasetIIiscompleted,we
+∑︁
+𝐹1−𝑆𝑐𝑜𝑟𝑒 𝑎𝑣𝑔 = 𝑊 𝑖 ∗𝐹1−𝑆𝑐𝑜𝑟𝑒 𝑖 (13) use the test set divided from Dataset II to evaluate SQL-
+𝑖 StateGuard,andtheresultsareshowninTable7.Wecan
+seethatSQLStateGuardalsoworkswellonDatasetII,but
+4.3 TrainingandDetectionPerformance
+thecomplexityanddiversityslightlydegradethedetection
+(RQ1)
+performance.
+ToanswerRQ1,twostatement-levelSQLinjectiondatasets Insummary,thisexperimentgivesaprettysatisfactory
+(DatasetIandDatasetII)areusedtotrainSQLSG-Net.In answertoRQ1.SQLStateGuardhasexcellentSQLinjection
+thisexperiment,theSQLstatementsinthedatasetarefirstly detectioncapabilityandcanaccuratelyidentifythetypeof
+convertedintosentencevectorsbytheStructuralFeatureEx- SQLinjections,thushelpingsecuritypersonnellocateand
+tractionLayerandtheSemanticFeatureExtractionLayerin analyzesecuritythreats.
+SQLSG-Netwhilepreservingthelabels.Then,thesesentence CaseStudyI:Theresultsshowthattheoverallperfor-
+vectorsandtheirlabelsareusedtotraintheSQLinjection manceofthemulti-classificationevaluationisreducedcom-
+detectionmodelsbasedonGLU. paredtothebinary-classificationevaluation.Afteranalyzing
+In this experiment, we divide the training set, test set, eachcategoryinthedatasets,wefoundthatsomemalicious
+andvalidationsetaccordingtotheratioof6:2:2.First,we samplessufferedfrommultipletypesofSQLinjections,such
+useDatasetIforthetrainingevaluationofSQLSG-Net,de- as the payload "admin’ AND SLEEP(5) AND ’fhez’=’fhez",
+rivedfromaself-builtWebapplicationtoevaluatetheSQL whichcombinesbothtime-blindandtautology-basedSQL
+injectiondetectionperformanceforAPIs. injections.However,thesesamplesareonlyclassifiedinto
+After the training based on Dataset I is completed, the asinglecategoryinthedatasets,sothemodelmaypredict
+performanceofSQLinjectiondetectionisevaluatedbased themasinconsistentwiththetaggedlabels.
+onbinaryclassificationandmulti-classificationcriteriaus- CaseStudyII:ThefollowingtwoSQLstatementsillus-
+ingthetestsetdividedfromDatasetI,asshowninTable6. trateexamplesofthosecapturedandmissedbyoursystem.
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+Table5:TheRelationshipbetweentheOriginalDatasetandtheDatasetthatPassesthroughtheStructuralFeature
+ExtractionLayer
+Original StructuralFeatureExtraction
+Normal Malicious Normal Malicious
+DatasetI 75,000 74,555 75,000 74,555
+DatasetII 79,316 71,757 79,316 64,541
+Table6:DetectionEvaluationonTestSetofDatasetI
+Type Accuracy Recall Precision F1-Score FPR
+Binary 100.00% 100.00% 100.00% 100.00% 0.00%
+Multiple 99.05% 98.58% 97.43% 97.98% N/A
+*Multi-classificationmetricsareweightedaverages
+Table7:DetectionEvaluationonTestSetofDatasetII
+Type Accuracy Recall Precision F1-Score FPR
+Binary 99.97% 99.95% 99.98% 99.97% >0.00%
+Multiple 98.93% 95.06% 96.06% 95.55% N/A
+*Multi-classificationmetricsareweightedaverages
+Webelievethefirststatement,whichwasnotcaptured,con- 4.4 ImplementationComparisonof
+tainsalargenumberofqueryunits,whichlikelyobscuredits SQLSG-Net(RQ2)
+maliciouscharacteristics.Incontrast,thesecondstatement,
+ThisexperimentfocusesonverifyingwhetherSQLSG-Net’s
+withfewerqueryunits,waseasilydetectedbyoursystem.
+implementationbasedonGLUhasacomparativeadvantage
+However,caseslikethefirststatement,wherethesystem
+overothersolutions.Inthisexperiment,weusedetection
+failstocaptureit,areextremelyrare(only6indatasetsIand
+modelsfromotherlearning-basedtechniquestoreplacethe
+II),andthuswebelievetheyhaveminimalimpactonour
+SQLInjectionDetectionLayerinSQLSG-Netandthencom-
+system’soverallperformance.
+parethedetectioneffectivenessofthedifferentimplementa-
+Listing2:ExamplesofMaliciousStatementsinDataset tions.Therearetwootherlearning-basedmodelsinvolved
+IandDatasetII inthisexperiment:SVM[9]andLSTM[16].
+The results of this experiment are shown in Table 8. It
+AnMaliciousSQLSystemdidn’tCaught
+isobviousfromthetablethatSVMhaspoorperformance,
+SELECTCOUNT(∗)FROMwp_term_relationships,
+especiallyitsfalsepositiverate,whichmakesSQLinjection
+wp_postsWHEREwp_posts.ID=
+blockingimpractical.Theoverallperformanceofthemodels
+wp_term_relationships.object_idANDpost_statusIN
+onDatasetIIisslightlyworsethanthatofDatasetI,espe-
+('publish')ANDpost_typeIN ('post') AND
+ciallywhenperformingthemulti-classificationevaluation,
+term_taxonomy_id=1and1=0unionselect 1,
+mainlybecauseWordPressgeneratesawidervarietyofSQL
+concat_ws(0x3a,version(),user(),database())
+statementtypesthanself-builtwebapplications.
+,3,4,5,6,7,8,9,10,11,12−−
+Besides,wecanseetheperformanceofLSTMispretty
+good, though still inferior to the GLU network used by
+AnMaliciousSQLSystemCaught
+SQLSG-Net.Itisanexcellentexampleoftheeffectiveness
+SELECTmeta_idFROMwp_postmetaWHEREmeta_key
+of SQLStateGuard’s architecture and feature engineering
+='_edit_lock'ANDpost_id=1and1=0unionselect
+design.Finally,SQLSG-Nethasthebestperformanceinall
+1,2,3,concat_ws(0x3a,version(),user(),database())
+evaluationmetrics,demonstratingthecomparativeadvan-
+,5−−
+tageofitsimplementationoverothersolutions.
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+Table8:DetectionLayerEvaluationonDatasetIandDatasetII
+Implementation Dataset ClassificationType Accuracy Recall Precision F1-Score FPR
+Binary 99.92% 99.84% 100.00% 99.92% 0.00%
+I
+Multiple 97.26% 77.22% 88.94% 81.16% N/A
+SVM
+Binary 97.81% 99.68% 95.87% 97.74% 3.89%
+II
+Multiple 96.27% 65.71% 86.43% 67.74% N/A
+Binary 99.99% 100.00% 99.97% 99.99% >0.00%
+I
+Multiple 98.37% 89.60% 91.76% 90.61% N/A
+LSTM
+Binary 99.95% 99.81% 99.92% 99.94% >0.00%
+II
+Multiple 97.77% 80.53% 89.51% 83.61% N/A
+Binary 100.00% 100.00% 100.00% 100.00% 0.00%
+I
+Multiple 99.05% 98.58% 97.43% 97.98% N/A
+SQLSG-Net
+Binary 99.97% 99.95% 99.98% 99.97% >0.00%
+II
+Multiple 98.93% 95.06% 96.06% 95.55% N/A
+*Multi-classificationmetricsareweightedaverages
+4.5 CostEvaluation(RQ3) IV)tocompletethisexperimentandperformasystem-level
+ThisexperimentisdesignedtoanswerRQ3.Thepresence evaluationbasedonbinary-classificationmetrics.
+of additional security detection will inevitably lead to in- Inthisexperiment,wefirstparsetheHTTPrequestsin
+creasedlatency,andwhethertheseadditionallatencieswill DatasetIIIandDatasetIVintothelogformatsrequiredby
+seriouslyinterferewiththeuseofdatabaseservicesbyback- thesetwoapproachesandrespectivelyevaluatetheirperfor-
+end programs is one of the critical questions of whether mance.TheSQLStateGuardproposedinthispaperworks
+SQLStateGuard can be deployed in the real world. In this at the statement level, and usually an HTTP request con-
+experiment,wecombineDatasetIandDatasetIIintoone tainsmorethanoneSQLstatement,whichmeansthatfora
+andevaluatethedetectiontimeoverheadofSQLStateGuard, maliciousrequest,aslongasanyofitscorrespondingstate-
+andtheresultsareshowninTable9. mentsisdeterminedtobemalicious,theHTTPrequestis
+ThefeatureextractionlayersofSQLSG-Netmainlycause malicious,whichgreatlyincreasesthesuccessrateofSQL-
+theoverheadofSQLStateGuard.Theadditionaltimeover- StateGuard’s judgment. If the back-end application sends
+headof10.499𝑚𝑠 forasingleSQLstatementcansatisfythe anSQLstatementtothedatabaseservicewhileprocessing
+needforSQLinjectionblockinginmostapplicationscenar- anHTTPrequest,SQLStateGuardwillrecordandanalyze
+ios.However,ifasingleapplicationinterfacecallcontains thisstatement.Theresultsofthisexperimentareshownin
+manySQLstatements,SQLStateGuardmayslowdownthe Table10.
+resultreturnspeed.Therefore,thispaperdesignsaBypass Theresultsshowthatthefalsepositiveisthemostcritical
+ModetoprovideSQLinjectiondetectionforlatency-sensitive weaknessofexistingapproaches.Byanalyzingtheirfalse
+scenarios. positivesamples,wefoundthatLuoetal.labeledunfamiliar
+words(e.g.,usernamesnotinthecorpus)maliciousdueto
+thelimitedgeneralizationability.Atthesametime,bothLuo
+4.6 System-LevelComparativeEvaluation etal.andYongetal.havedifficultycopingwiththecomplex
+(RQ4) trafficvariation.Itispronetofalsepositiveswhendetecting
+samples containing special characters and long strings of
+ToanswerRQ4,twoexistingapproaches,Luoetal.[28]and
+numbersandletters.
+Yongetal.[43],areselectedforcomparisonwithSQLState-
+Overall, compared with existing approaches, SQLState-
+Guardinthisexperiment.Thefirstapproachisbasedonlog
+GuardhassignificantadvantagesinallmetricsofSQLinjec-
+analysisandCNN.Thesecondisamalicioustrafficdetection
+tiondetection,includingDatasetIVwithrelativelycomplex
+approachbasedonHiddenMarkovModel(HMM).
+samples,whichanswersRQ4verywell.
+SincebothofthemanalyzesamplesattheHTTPtraffic
+level,andtheanalysisresultsareonlynormalandmalicious,
+weusetwoHTTPrequestdatasets(DatasetIIIandDataset
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+Table9:AverageTimeOverheadofSingle-StatementDetection
+Working SQL SQLSG-Net
+Total
+Mode Middleware
+Structural Semantic Detection
+Bypass 0.31ms 0 0 0 0.31ms
+Blocking 0.31ms 0.37ms 9.97ms 0.16ms 10.50ms
+Table10:ComparisonEvaluationResults
+Luoetal. Yongetal. Ours
+Dataset III IV III IV III IV
+Accuracy 88.68% 86.43% 98.46% 93.35% 100.00% 100.00%
+Recall 88.68% 86.43% 98.46% 93.35% 100.00% 100.00%
+Precision 89.15% 87.25% 98.51% 93.59% 99.99% 100.00%
+F1-Score 88.65% 86.35% 98.46% 93.34% 100.00% 100.00%
+FPR 16.70% 21.10% 0.00% 10.41% >0.00% 0.00%
+5 DISCUSSION nottoblocktheattack,butforquickwarning,thelatency
+of0.3msinthismodeisacceptableinmostofthesituations.
+5.1 WeaknessofSQLStateGuard
+However,iftheserviceisstillveryperformancesensitiveor
+ExperimentsshowthattheSQLStateGuardproposedinthis
+therearehugeamountofrequests,wecandeployoursolu-
+paperissignificantlybetteratdetectingSQLinjectionsthan
+tionusing,forexample,portmirroring,whichcaneliminate
+existingapproaches,makingitseemtohaveasevereoverfit-
+thelatency.
+tingrisk-butthisisnotthecase.SQLStateGuardisnotthe
+endofthestory,anditsimpressivedetectionperformanceis
+5.2 FutureImprovements
+mainlyduetotwofactors:
+First, SQLStateGuard needs to train different detection Inthefuture,wewillmainlyimproveSQLStateGuardintwo
+modelsfordifferentdatabases.Thisdesignsignificantlyre- aspects.First,wewillreducethenumberofmodelsasmuch
+ducesthevariationofnormalstatements,thusmakingmali- as possible so that each model can serve more databases,
+ciousSQLstatementsmoreprominent.Ontheotherhand, thusreducingmodeltraininganddeploymentcosts.Second,
+it also increases the deployment costs, making SQLState- we will improve the feature engineering process of SQL-
+Guard very challenging in protecting the applications de- StateGuardandshortenthefeatureextractiontimesothat
+signedonnewagiledevelopmentmodelssuchasDevOps. SQLStateGuardcanruninBlockingModemoreoftenand
+Therefore,SQLStateGuardonlysuitstheservicesprovided achievebetterSQLinjectionprotection.
+bytraditionalorganizations(e.g.,government),whichare Inaddition,wewillalsotrytoimprovetheadaptability
+always data-rich and security-critical but have very little ofSQLStateGuardtocodechangesbyintroducinganovel
+codechangeafterdeployment. scoringmechanismtoreducethenumberofretrainingwhile
+Second,SQLStateGuardsimultaneouslyusesdifferentdi- ensuringlowFPR,thusmeetingtheneedsofemergingsoft-
+mensionsofSQLstatementinformationforfeatureextrac- wareengineeringmodelslikeDevOps.
+tion.CombinedwithaGLU-basednetwork,tinydifferences
+betweenthenormalandtheinjectedstatementscanbeef-
+6 CONCLUSION
+fectivelyfound.However,thisdesignalsoincreasesthetime
+overhead,whichaffectsthereal-timeperformanceofSQL- Inthispaper,weproposeSQLStateGuard,anovelstatement-
+StateGuard. levelSQLinjectiondetectionapproach.SQLStateGuardis
+Inthecurrentcontextofthepopularityofcloudcomput- based on the idea of RASP, incorporates middleware into
+ing,theremaybesomanyrequestsforaccesstoaparticular the database service process, and implements statement-
+servicethateachrequestneedstoberespondedtowithvery levelSQLinjectiondetectionbasedonGLU.Itisprovedthat
+lowlatency.Forthissituation,wedesignedbypassmodefor SQLStateGuardcanaccuratelydetectSQLinjectionswith
+performancesensitivesituation,inthismodeourpurposeis averylowFPRcomparedtoexistingapproachesandeven
+identifythetacticaltypesofSQLinjectionsquiteaccurately.
+
+SQLStateGuard:Statement-LevelSQLInjectionDefenseBasedonLearning-DrivenMiddleware SoCC’24,November20–22,2024,Redmond,WA,USA
+SQLStateGuard’s SQL injection detection capabilities are [17] WeizheHua,ZihangDai,HanxiaoLiu,andQuocLe.2022.Transformer
+overwhelminglysuperiortoexistingapproaches. qualityinlineartime.InInternationalconferenceonmachinelearning.
+PMLR,9099–9117.
+ACKNOWLEDGMENTS [18] AnamikaJoshiandVGeetha.2014. SQLInjectiondetectionusing
+machinelearning.In2014internationalconferenceoncontrol,instru-
+ThisworkissupportedbyHY-ProjectunderNo.4E49EFF3, mentation,communicationandcomputationaltechnologies(ICCICCT).
+theGansuProvinceKeyResearchandDevelopmentPlan- IEEE,1111–1115.
+IndustrialProjectunderGrantNo.22YF7GA004,andSuper- [19] MeiJunjin.2009.AnApproachforSQLInjectionVulnerabilityDetec-
+tion. 2009SixthInternationalConferenceonInformationTechnology:
+computingCenterofLanzhouUniversity.
+NewGenerations(2009),1411–1414.
+[20] KonstantinosKemalisandTheodoresTzouramanis.2008.SQL-IDS:a
+REFERENCES
+specification-basedapproachforSQL-injectiondetection.InProceed-
+[1] StanislavAbaimovandGiuseppeBianchi.2019. CODDLE:Code- ingsofthe2008ACMsymposiumonAppliedcomputing.2153–2158.
+InjectionDetectionWithDeepLearning.IEEEAccess7(2019),128617– [21] JacobDevlinMing-WeiChangKentonandLeeKristinaToutanova.
+128627. https://doi.org/10.1109/ACCESS.2019.2939870 2019. Bert:Pre-trainingofdeepbidirectionaltransformersforlan-
+[2] EdwardAmoroso.2018. Recentprogressinsoftwaresecurity. IEEE guageunderstanding.InProceedingsofnaacL-HLT,Vol.1.Minneapolis,
+Software35,2(2018),11–13. Minnesota,2.
+[3] NunoAntunesandMarcoVieira.2010.Benchmarkingvulnerability [22] TakuKudoandJohnRichardson.2018.Sentencepiece:Asimpleand
+detectiontoolsforwebservices.In2010IEEEInternationalConference languageindependentsubwordtokenizeranddetokenizerforneural
+onWebServices.IEEE,203–210. textprocessing.arXivpreprintarXiv:1808.06226(2018).
+[4] MatthewBach-Nutman.2020. Understandingthetop10owaspvul- [23] ZhenzhongLan,MingdaChen,SebastianGoodman,KevinGimpel,
+nerabilities.arXivpreprintarXiv:2012.09960(2020). Piyush Sharma, and Radu Soricut. 2019. Albert: A lite bert for
+[5] Miroslav Stampar Bernardo Damele Assumpcao Guimaraes. 2016. self-supervisedlearningoflanguagerepresentations.arXivpreprint
+SQLMAP. https://sqlmap.org/ arXiv:1909.11942(2019).
+[6] PrithviBisht,P.Madhusudan,andV.N.Venkatakrishnan.2010.CAN- [24] Q.Li,W.Li,J.Wang,andM.Cheng.2019.ASQLInjectionDetection
+DID:DynamiccandidateevaluationsforautomaticpreventionofSQL MethodbasedonAdaptiveDeepForest. IEEEAccessPP,99(2019),
+injectionattacks.AcmTransactionsonInformation&SystemSecurity 1–1.
+13,2(2010),398–404. [25] XinLiu,QingchenYu,XiaokangZhou,andQingguoZhou.2018.Owl-
+[7] StephenWBoydandAngelosDKeromytis.2004.SQLrand:Preventing Eye:AnAdvancedDetectionSystemofWebAttacksBasedonHMM.
+SQLinjectionattacks.InInternationalconferenceonappliedcryptogra- In2018IEEE16thIntlConfonDependable,AutonomicandSecureCom-
+phyandnetworksecurity.Springer,292–302. puting,16thIntlConfonPervasiveIntelligenceandComputing,4th
+[8] XiaoyiChen,QingniShen,PengCheng,YongqiangXiong,andZhong- IntlConfonBigDataIntelligenceandComputingandCyberScience
+haiWu.2022.RuleCache:AcceleratingWebApplicationFirewallsby andTechnologyCongress(DASC/PiCom/DataCom/CyberSciTech).IEEE,
+On-lineLearningTrafficPatterns.In2022IEEEInternationalConference 200–207.
+onWebServices(ICWS).IEEE,229–239. [26] XinLiu,WenqiangZhang,XiaokangZhou,andQingguoZhou.2021.
+[9] CorinnaCortesandVladimirVapnik.1995.Support-vectornetworks. MECGuard:GRUenhancedattackdetectioninMobileEdgeComputing
+Machinelearning20,3(1995),273–297. environment.ComputerCommunications172(2021),1–9.
+[10] Ignacio Samuel Crespo-Martínez, Adrián Campazas-Vega, Án- [27] DongzheLu,JinlongFei,andLongLiu.2023. ASemanticLearning-
+gelManuelGuerrero-Higueras,VirginiaRiego-DelCastillo,Claudia BasedSQLInjectionAttackDetectionTechnology. Electronics12,6
+ÁlvarezAparicio,andCaminoFernández-Llamas.2023.SQLInjection (2023),1344.Issue6. https://doi.org/10.3390/electronics12061344
+AttackDetectioninNetworkFlowData. Computers&Security127 [28] AoLuo,WeiHuang,andWenqingFan.2019.ACNN-basedApproach
+(2023),103093. https://doi.org/10.1016/j.cose.2023.103093 totheDetectionofSQLInjectionAttacks.In2019IEEE/ACIS18th
+[11] JohannesDahseandJörgSchwenk.2010.RIPS-Astaticsourcecode InternationalConferenceonComputerandInformationScience(ICIS).
+analyserforvulnerabilitiesinPHPscripts.InSeminarWork(Seminer IEEE,320–324.
+Çalismasi).HorstGörtzInstituteRuhr-UniversityBochum.Citeseer. [29] J.Mei.2009.AnApproachforSQLInjectionVulnerabilityDetection.
+[12] JesúsEDíaz-Verdejo,RafaelEstepaAlonso,AntonioEstepaAlonso, InInformationTechnology:NewGenerations,2009.ITNG’09.Sixth
+andGermanMadinabeitia.2022.Acriticalreviewofthetechniques InternationalConferenceon.
+usedforanomalydetectionofHTTP-basedattacks:taxonomy,limita- [30] BasemIbrahimMukhtarandMarianneAAzer.2020.Evaluatingthe
+tionsandopenchallenges.Computers&Security(2022),102997. modsecuritywebapplicationfirewallagainstsqlinjectionattacks.
+[13] Nick Galbreath. 2014. Libinjection. https://github.com/client9/ In202015thInternationalConferenceonComputerEngineeringand
+libinjection Systems(ICCES).IEEE,1–6.
+[14] NingGuo,XiaoyongLi,HuiYin,andYaliGao.2019.Vulhunter:An [31] PingCAP.2022.MySQLParser. https://github.com/pingcap/parser
+automatedvulnerabilitydetectionsystembasedondeeplearningand [32] Python.org.2022. TheofficialhomeofthePythonProgramming
+bytecode.InInternationalConferenceonInformationandCommunica- Language.https://python.org/.
+tionsSecurity.Springer,199–218. [33] Sanic.2022.SanicFramework.https://sanic.dev/en/.
+[15] WilliamGJHalfondandAlessandroOrso.2005.AMNESIA:analysis [34] SuperCowPowers. 2013. Data-Hacking. https://github.com/
+andmonitoringforneutralizingSQL-injectionattacks.InProceedings SuperCowPowers/data_hacking/tree/master/sql_injection/data
+ofthe20thIEEE/ACMinternationalConferenceonAutomatedsoftware [35] PengTang,WeidongQiu,ZhengHuang,HuijuanLian,andGuozhen
+engineering.174–183. Liu.2020.DetectionofSQLinjectionbasedonartificialneuralnetwork.
+[16] SeppHochreiterandJürgenSchmidhuber.1997. LongShort-term Knowl.BasedSyst.190(2020),105528.
+Memory.Neuralcomputation9(121997),1735–80. https://doi.org/10. [36] OmerTripp,MarcoPistoia,StephenJFink,ManuSridharan,andOmri
+1162/neco.1997.9.8.1735 Weisman.2009.TAJ:effectivetaintanalysisofwebapplications.ACM
+
+SoCC’24,November20–22,2024,Redmond,WA,USA Liuetal.
+SigplanNotices44,6(2009),87–97. [43] BinbinYong,XinLiu,QingchenYu,LiangHuang,andQingguoZhou.
+[37] AshishVaswani,NoamShazeer,NikiParmar,JakobUszkoreit,Llion 2019.MaliciousWebtrafficdetectionforInternetofThingsenviron-
+Jones,AidanNGomez,ŁukaszKaiser,andIlliaPolosukhin.2017. ments.Computers&ElectricalEngineering77(2019),260–272.
+AttentionisAllyouNeed.InAdvancesinNeuralInformationProcessing [44] HuafengZhang,BoZhao,HuiYuan,JinxiongZhao,XiaobinYan,and
+Systems,I.Guyon,U.V.Luxburg,S.Bengio,H.Wallach,R.Fergus, FangjunLi.2019.SQLinjectiondetectionbasedondeepbeliefnetwork.
+S.Vishwanathan,andR.Garnett(Eds.),Vol.30.CurranAssociates, InProceedingsofthe3rdInternationalConferenceonComputerScience
+Inc. andApplicationEngineering.1–6.
+[38] WordPress.2022. BlogTool,PublishingPlatform,andCMS. https: [45] SuZhangandYingZhang.2022.PrivacyLeakageVulnerabilityDe-
+//wordpress.org/. tectionforPrivacy-PreservingComputationServices.In2022IEEE
+[39] X.R.WuandPpkChan.2012. SQLinjectionattacksdetectionin InternationalConferenceonWebServices(ICWS).219–228. https:
+adversarialenvironmentsbyk-centers.InInternationalConferenceon //doi.org/10.1109/ICWS55610.2022.00043
+MachineLearning&Cybernetics. [46] YaqinZhang,DuoheMa,XiaoyanSun,KaiChen,andFengLiu.2020.
+[40] Z.Xiao,Z.Zhou,W.Yang,andC.Deng.2017.AnapproachforSQL WGT:ThwartingWebAttacksThroughWebGeneTree-basedMoving
+injectiondetectionbasedonbehaviorandresponseanalysis.In2017 TargetDefense.In2020IEEEInternationalConferenceonWebServices
+IEEE9thInternationalConferenceonCommunicationSoftwareand (ICWS).364–371. https://doi.org/10.1109/ICWS49710.2020.00054
+Networks(ICCSN). [47] FZHAOY,GXIONG,etal.2016. SQLinjectionbehaviordetection
+[41] LiuXin,LiuZiang,ZhangYingli,ZhangWenqiang,LvDong,and methodfornetworkenvironment[J].JournalofCommunications37,
+ZhouQingguo.2022.TCNenhancednovelmalicioustrafficdetection 2(2016),88–97.
+forIoTdevices.ConnectionScience34,1(2022),1322–1341. [48] M.Zolotukhin,T.Hämäläinen,T.Kokkonen,andJ.Siltanen.2014.
+[42] WenchuanYang,WenZuo,andBaojiangCui.2019. DetectingMa- AnalysisofHTTPRequestsforAnomalyDetectionofWebAttacks.In
+liciousURLsviaaKeyword-BasedConvolutionalGated-Recurrent- 2014IEEE12thInternationalConferenceonDependable,Autonomicand
+UnitNeuralNetwork. IEEEAccess 7(2019),29891–29900. https: SecureComputing.406–411. https://doi.org/10.1109/DASC.2014.79
+//doi.org/10.1109/ACCESS.2019.2895751
